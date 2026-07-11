@@ -5,7 +5,7 @@ struct FoldersView: View {
 
     var body: some View {
         List(library.playlists) { playlist in
-            NavigationLink(value: playlist) {
+            NavigationLink(value: LibraryDestination.playlist(playlist)) {
                 Label {
                     VStack(alignment: .leading) {
                         Text(playlist.name)
@@ -21,6 +21,7 @@ struct FoldersView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle("Folders")
+        .optionsToolbar()
     }
 }
 
@@ -29,7 +30,7 @@ struct ArtistsView: View {
 
     var body: some View {
         List(library.artists) { artist in
-            NavigationLink(value: artist) {
+            NavigationLink(value: LibraryDestination.artist(artist)) {
                 Label {
                     VStack(alignment: .leading) {
                         Text(artist.name)
@@ -45,6 +46,7 @@ struct ArtistsView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle("Artists")
+        .optionsToolbar()
     }
 }
 
@@ -57,7 +59,7 @@ struct AlbumsView: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(library.albums) { album in
-                    NavigationLink(value: album) {
+                    NavigationLink(value: LibraryDestination.album(album)) {
                         AlbumCell(album: album)
                     }
                     .buttonStyle(.plain)
@@ -67,6 +69,7 @@ struct AlbumsView: View {
         }
         .background(AppBackground())
         .navigationTitle("Albums")
+        .optionsToolbar()
     }
 }
 

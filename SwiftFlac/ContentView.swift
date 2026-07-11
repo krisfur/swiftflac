@@ -24,6 +24,12 @@ enum BrowseMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum LibraryDestination: Hashable {
+    case playlist(Playlist)
+    case album(Album)
+    case artist(Artist)
+}
+
 struct ContentView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(PlayerController.self) private var player
@@ -34,6 +40,10 @@ struct ContentView: View {
     #else
     @State private var mode: BrowseMode?
     #endif
+    @State private var path: [LibraryDestination] = []
+    @State private var savedPaths: [BrowseMode: [LibraryDestination]] = [:]
+    @State private var forwardStack: [LibraryDestination] = []
+    @State private var isRestoringPath = false
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
@@ -48,24 +58,52 @@ struct ContentView: View {
             #if os(iOS)
             .scrollContentBackground(.hidden)
             .background(AppBackground())
-            .toolbar {
-                ToolbarItem {
-                    optionsMenu
-                }
-            }
             #endif
+            .optionsToolbar()
         } detail: {
-            NavigationStack {
+            NavigationStack(path: $path) {
                 detailRoot
-                    .navigationDestination(for: Playlist.self) { playlist in
-                        TrackListView(title: playlist.name, tracks: playlist.tracks)
+                    .navigationDestination(for: LibraryDestination.self) { destination in
+                        switch destination {
+                        case .playlist(let playlist):
+                            TrackListView(title: playlist.name, tracks: playlist.tracks)
+                        case .album(let album):
+                            TrackListView(title: album.name, tracks: album.tracks)
+                        case .artist(let artist):
+                            TrackListView(title: artist.name, tracks: artist.tracks, showsArtist: false)
+                        }
                     }
-                    .navigationDestination(for: Album.self) { album in
-                        TrackListView(title: album.name, tracks: album.tracks)
+            }
+            #if os(iOS)
+            // Swipe left to re-enter the screen you just swiped back out of.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 25)
+                    .onEnded { value in
+                        if value.translation.width < -70, abs(value.translation.height) < 50 {
+                            goForward()
+                        }
                     }
-                    .navigationDestination(for: Artist.self) { artist in
-                        TrackListView(title: artist.name, tracks: artist.tracks, showsArtist: false)
-                    }
+            )
+            #endif
+        }
+        .onChange(of: mode) { oldMode, newMode in
+            if let oldMode { savedPaths[oldMode] = path }
+            let restored = newMode.flatMap { savedPaths[$0] } ?? []
+            forwardStack = []
+            if restored != path {
+                isRestoringPath = true
+                path = restored
+            }
+        }
+        .onChange(of: path) { oldPath, newPath in
+            if isRestoringPath {
+                isRestoringPath = false
+                return
+            }
+            if newPath.count < oldPath.count {
+                forwardStack.append(contentsOf: oldPath[newPath.count...].reversed())
+            } else if newPath.count > oldPath.count {
+                forwardStack = []
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -78,7 +116,7 @@ struct ContentView: View {
         // overflow menu, so the options menu lives in the window toolbar.
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                optionsMenu
+                OptionsMenu(showingFolderPicker: $showingFolderPicker)
             }
         }
         // Swallow the popover-dismissing click so it can't hit a track
@@ -102,6 +140,13 @@ struct ContentView: View {
                 library.setRootFolder(url)
             }
         }
+    }
+
+    private func goForward() {
+        guard let next = forwardStack.last else { return }
+        forwardStack.removeLast()
+        isRestoringPath = true
+        path.append(next)
     }
 
     @ViewBuilder
@@ -134,7 +179,27 @@ struct ContentView: View {
         }
     }
 
-    private var optionsMenu: some View {
+    // On macOS a popover dismisses when clicking anywhere else, which a
+    // sheet there does not; iOS keeps the swipeable sheet.
+    @ViewBuilder
+    private var nowPlayingBar: some View {
+        #if os(macOS)
+        NowPlayingBar { showingNowPlaying = true }
+            .popover(isPresented: $showingNowPlaying, arrowEdge: .bottom) {
+                NowPlayingView()
+            }
+        #else
+        NowPlayingBar { showingNowPlaying = true }
+        #endif
+    }
+}
+
+struct OptionsMenu: View {
+    @Environment(MusicLibrary.self) private var library
+    @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
+    @Binding var showingFolderPicker: Bool
+
+    var body: some View {
         Menu {
             Button("Choose Folder…", systemImage: "folder.badge.plus") {
                 showingFolderPicker = true
@@ -152,18 +217,38 @@ struct ContentView: View {
             Label("Options", systemImage: "ellipsis.circle")
         }
     }
+}
 
-    // On macOS a popover dismisses when clicking anywhere else, which a
-    // sheet there does not; iOS keeps the swipeable sheet.
-    @ViewBuilder
-    private var nowPlayingBar: some View {
-        #if os(macOS)
-        NowPlayingBar { showingNowPlaying = true }
-            .popover(isPresented: $showingNowPlaying, arrowEdge: .bottom) {
-                NowPlayingView()
+#if os(iOS)
+// Every screen carries its own options menu so it stays reachable
+// anywhere in the navigation stack.
+private struct OptionsToolbarModifier: ViewModifier {
+    @Environment(MusicLibrary.self) private var library
+    @State private var showingFolderPicker = false
+
+    func body(content: Content) -> some View {
+        content
+            .toolbar {
+                ToolbarItem {
+                    OptionsMenu(showingFolderPicker: $showingFolderPicker)
+                }
             }
+            .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
+                if case .success(let url) = result {
+                    library.setRootFolder(url)
+                }
+            }
+    }
+}
+#endif
+
+extension View {
+    @ViewBuilder
+    func optionsToolbar() -> some View {
+        #if os(iOS)
+        modifier(OptionsToolbarModifier())
         #else
-        NowPlayingBar { showingNowPlaying = true }
+        self
         #endif
     }
 }
@@ -187,6 +272,7 @@ struct TrackListView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle(title)
+        .optionsToolbar()
     }
 }
 
