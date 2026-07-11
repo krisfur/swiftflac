@@ -19,57 +19,55 @@ struct NowPlayingBar: View {
     let onTap: () -> Void
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            VStack(spacing: 0) {
-                ProgressLine(progress: player.duration > 0 ? player.currentTime / player.duration : 0)
+        VStack(spacing: 0) {
+            ProgressLine(progress: player.duration > 0 ? player.currentTime / player.duration : 0)
+            HStack(spacing: 14) {
+                // Only this leading region opens the full player, so the
+                // transport buttons never race against the tap gesture.
                 HStack(spacing: 14) {
-                    // Only this leading region opens the full player, so the
-                    // transport buttons never race against the tap gesture.
-                    HStack(spacing: 14) {
-                        ArtworkView(data: player.nowPlaying.artworkData, size: 40, cornerRadius: 6)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(player.displayTitle)
-                                .font(.subheadline.weight(.medium))
+                    ArtworkView(data: player.nowPlaying.artworkData, size: 40, cornerRadius: 6)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(player.displayTitle)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                        if let artist = player.nowPlaying.artist {
+                            Text(artist)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                            if let artist = player.nowPlaying.artist {
-                                Text(artist)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
                         }
-                        Spacer(minLength: 8)
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: onTap)
-                    ShuffleButton(compact: true)
-                    Button {
-                        player.previous()
-                    } label: {
-                        Image(systemName: "backward.fill")
-                            .font(.body)
-                    }
-                    Button {
-                        player.togglePlayPause()
-                    } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.title3)
-                            .frame(width: 24)
-                    }
-                    Button {
-                        player.next()
-                    } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.body)
-                    }
-                    RepeatButton(compact: true)
+                    Spacer(minLength: 8)
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onTap)
+                ShuffleButton(compact: true)
+                Button {
+                    player.previous()
+                } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.body)
+                }
+                Button {
+                    player.togglePlayPause()
+                } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title3)
+                        .frame(width: 24)
+                }
+                Button {
+                    player.next()
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.body)
+                }
+                RepeatButton(compact: true)
             }
-            .background(.regularMaterial)
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
+        .background(.regularMaterial)
     }
 }
 
@@ -147,72 +145,70 @@ struct NowPlayingView: View {
     @State private var scrubTime: Double?
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            VStack(spacing: 24) {
-                ArtworkView(data: player.nowPlaying.artworkData, size: 260, cornerRadius: 12)
-                    .shadow(radius: 10)
+        VStack(spacing: 24) {
+            ArtworkView(data: player.nowPlaying.artworkData, size: 260, cornerRadius: 12)
+                .shadow(radius: 10)
 
-                VStack(spacing: 4) {
-                    Text(player.displayTitle)
-                        .font(.title3.weight(.semibold))
-                        .multilineTextAlignment(.center)
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal)
-
-                VStack(spacing: 4) {
-                    Slider(
-                        value: Binding(
-                            get: { scrubTime ?? player.currentTime },
-                            set: { scrubTime = $0 }
-                        ),
-                        in: 0...max(player.duration, 1)
-                    ) { editing in
-                        if !editing {
-                            if let scrubTime { player.seek(to: scrubTime) }
-                            scrubTime = nil
-                        }
-                    }
-                    HStack {
-                        Text(formatted(scrubTime ?? player.currentTime))
-                        Spacer()
-                        Text(formatted(player.duration))
-                    }
-                    .font(.caption.monospacedDigit())
+            VStack(spacing: 4) {
+                Text(player.displayTitle)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                Text(subtitle)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal)
-
-                HStack(spacing: 36) {
-                    ShuffleButton()
-                    Button {
-                        player.previous()
-                    } label: {
-                        Image(systemName: "backward.fill")
-                            .font(.title)
-                    }
-                    Button {
-                        player.togglePlayPause()
-                    } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 44))
-                            .frame(width: 52)
-                    }
-                    Button {
-                        player.next()
-                    } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.title)
-                    }
-                    RepeatButton()
-                }
-                .buttonStyle(.plain)
             }
-            .padding(.vertical, 32)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal)
+
+            VStack(spacing: 4) {
+                Slider(
+                    value: Binding(
+                        get: { scrubTime ?? player.currentTime },
+                        set: { scrubTime = $0 }
+                    ),
+                    in: 0...max(player.duration, 1)
+                ) { editing in
+                    if !editing {
+                        if let scrubTime { player.seek(to: scrubTime) }
+                        scrubTime = nil
+                    }
+                }
+                HStack {
+                    Text(formatted(scrubTime ?? player.currentTime))
+                    Spacer()
+                    Text(formatted(player.duration))
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal)
+
+            HStack(spacing: 36) {
+                ShuffleButton()
+                Button {
+                    player.previous()
+                } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.title)
+                }
+                Button {
+                    player.togglePlayPause()
+                } label: {
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 44))
+                        .frame(width: 52)
+                }
+                Button {
+                    player.next()
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.title)
+                }
+                RepeatButton()
+            }
+            .buttonStyle(.plain)
         }
+        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppBackground())
         #if os(macOS)
         .frame(minWidth: 420, minHeight: 540)

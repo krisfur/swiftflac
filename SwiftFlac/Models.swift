@@ -42,8 +42,12 @@ func loadMetadata(for track: Track) async -> TrackMetadata {
             }
         }
     }
-    if metadata.artworkData == nil, track.url.pathExtension.lowercased() == "flac" {
-        metadata.artworkData = FlacArtwork.pictureData(in: track.url)
+    if track.url.pathExtension.lowercased() == "flac" {
+        let flac = FlacMetadata.read(from: track.url)
+        metadata.title = metadata.title ?? flac.title
+        metadata.artist = metadata.artist ?? flac.artist
+        metadata.album = metadata.album ?? flac.album
+        metadata.artworkData = metadata.artworkData ?? flac.artworkData
     }
     return metadata
 }

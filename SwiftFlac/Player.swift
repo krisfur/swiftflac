@@ -13,16 +13,19 @@ enum RepeatMode: String {
 
 @MainActor
 @Observable
-final class PlayerController: NSObject {
+final class PlayerController {
     private(set) var queue: [Track] = []
     private(set) var currentIndex: Int?
     private(set) var isPlaying = false
     private(set) var nowPlaying = TrackMetadata()
     private(set) var isShuffling = false
     private(set) var repeatMode: RepeatMode = .off
+    private(set) var currentTime: TimeInterval = 0
+    private(set) var duration: TimeInterval = 0
 
-    private var player: AVAudioPlayer?
+    private let player = AVPlayer()
     private var originalQueue: [Track] = []
+    private var timeObserver: Any?
 
     private static let shuffleKey = "playerShuffle"
     private static let repeatKey = "playerRepeatMode"
@@ -32,13 +35,9 @@ final class PlayerController: NSObject {
         return queue[currentIndex]
     }
 
-    var currentTime: TimeInterval { player?.currentTime ?? 0 }
-    var duration: TimeInterval { player?.duration ?? 0 }
-
     var displayTitle: String { nowPlaying.title ?? currentTrack?.displayName ?? "" }
 
-    override init() {
-        super.init()
+    init() {
         isShuffling = UserDefaults.standard.bool(forKey: Self.shuffleKey)
         repeatMode = UserDefaults.standard.string(forKey: Self.repeatKey)
             .flatMap(RepeatMode.init(rawValue:)) ?? .off
@@ -47,6 +46,27 @@ final class PlayerController: NSObject {
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
         configureRemoteCommands()
+
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            MainActor.assumeIsolated {
+                self?.currentTime = time.seconds
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                guard let self,
+                      let item = notification.object as? AVPlayerItem,
+                      item === self.player.currentItem else { return }
+                self.trackFinished()
+            }
+        }
     }
 
     func play(_ track: Track, from playlist: Playlist) {
@@ -88,14 +108,13 @@ final class PlayerController: NSObject {
     }
 
     func togglePlayPause() {
-        guard let player else { return }
+        guard player.currentItem != nil else { return }
         if isPlaying {
             player.pause()
-            isPlaying = false
         } else {
             player.play()
-            isPlaying = true
         }
+        isPlaying.toggle()
         updateNowPlayingInfo()
     }
 
@@ -113,14 +132,14 @@ final class PlayerController: NSObject {
     }
 
     func seek(to time: TimeInterval) {
-        guard let player else { return }
-        // Setting currentTime on a playing AVAudioPlayer can wedge the
-        // decoder; pause around the jump, and stay clear of the very end.
-        let wasPlaying = isPlaying
+        guard player.currentItem != nil else { return }
         let target = min(max(0, time), max(duration - 0.1, 0))
-        player.pause()
-        player.currentTime = target
-        if wasPlaying { player.play() }
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        )
+        currentTime = target
         updateNowPlayingInfo()
     }
 
@@ -130,7 +149,7 @@ final class PlayerController: NSObject {
         if !queue.indices.contains(target) {
             guard repeatMode == .all else {
                 // End of queue: stop but keep the last track visible.
-                player?.stop()
+                player.pause()
                 isPlaying = false
                 updateNowPlayingInfo()
                 return
@@ -143,9 +162,11 @@ final class PlayerController: NSObject {
 
     private func trackFinished() {
         if repeatMode == .one {
-            // A finished AVAudioPlayer does not reliably restart with play(),
-            // so rebuild it just like a track change (keeping the metadata).
-            startCurrentTrack(reloadMetadata: false)
+            player.seek(to: .zero)
+            player.play()
+            isPlaying = true
+            currentTime = 0
+            updateNowPlayingInfo()
         } else {
             advance(by: 1)
         }
@@ -153,15 +174,17 @@ final class PlayerController: NSObject {
 
     private func startCurrentTrack(reloadMetadata: Bool = true) {
         guard let track = currentTrack else { return }
-        do {
-            let newPlayer = try AVAudioPlayer(contentsOf: track.url)
-            newPlayer.delegate = self
-            player = newPlayer
-            newPlayer.play()
-            isPlaying = true
-        } catch {
-            player = nil
-            isPlaying = false
+        let item = AVPlayerItem(url: track.url)
+        player.replaceCurrentItem(with: item)
+        player.play()
+        isPlaying = true
+        currentTime = 0
+        duration = 0
+        Task {
+            let seconds = (try? await item.asset.load(.duration))?.seconds ?? 0
+            guard item === player.currentItem else { return }
+            duration = seconds.isFinite ? seconds : 0
+            updateNowPlayingInfo()
         }
         guard reloadMetadata else {
             updateNowPlayingInfo()
@@ -233,11 +256,5 @@ final class PlayerController: NSObject {
         }
         #endif
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-}
-
-extension PlayerController: AVAudioPlayerDelegate {
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.trackFinished() }
     }
 }

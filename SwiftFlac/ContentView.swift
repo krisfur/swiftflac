@@ -39,26 +39,13 @@ struct ContentView: View {
                     }
                 }
             }
+            #if os(iOS)
             .toolbar {
                 ToolbarItem {
-                    Menu {
-                        Button("Choose Folder…", systemImage: "folder.badge.plus") {
-                            showingFolderPicker = true
-                        }
-                        Button("Rescan Library", systemImage: "arrow.clockwise") {
-                            library.rescan()
-                        }
-                        Picker("Appearance", selection: $appearanceRaw) {
-                            ForEach(Appearance.allCases, id: \.rawValue) { appearance in
-                                Text(appearance.label).tag(appearance.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    } label: {
-                        Label("Options", systemImage: "ellipsis.circle")
-                    }
+                    optionsMenu
                 }
             }
+            #endif
         } detail: {
             Group {
                 if let selectedPlaylist {
@@ -75,6 +62,13 @@ struct ContentView: View {
             }
         }
         #if os(macOS)
+        // The sidebar toolbar is too narrow and pushes items into the »
+        // overflow menu, so the options menu lives in the window toolbar.
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                optionsMenu
+            }
+        }
         // Swallow the popover-dismissing click so it can't hit a track
         // row or a transport button underneath.
         .overlay {
@@ -96,6 +90,25 @@ struct ContentView: View {
                 library.setRootFolder(url)
                 selectedPlaylist = nil
             }
+        }
+    }
+
+    private var optionsMenu: some View {
+        Menu {
+            Button("Choose Folder…", systemImage: "folder.badge.plus") {
+                showingFolderPicker = true
+            }
+            Button("Rescan Library", systemImage: "arrow.clockwise") {
+                library.rescan()
+            }
+            Picker("Appearance", selection: $appearanceRaw) {
+                ForEach(Appearance.allCases, id: \.rawValue) { appearance in
+                    Text(appearance.label).tag(appearance.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+        } label: {
+            Label("Options", systemImage: "ellipsis.circle")
         }
     }
 
