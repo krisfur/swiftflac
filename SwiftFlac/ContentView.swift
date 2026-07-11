@@ -179,28 +179,50 @@ struct TrackListView: View {
             Button {
                 player.play(track, in: tracks)
             } label: {
-                HStack {
-                    Image(systemName: player.currentTrack == track ? "speaker.wave.2.fill" : "music.note")
-                        .foregroundStyle(player.currentTrack == track ? Color.accentColor : Color.secondary)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(track.displayTitle)
-                            .lineLimit(1)
-                        if showsArtist, let artist = track.artist {
-                            Text(artist)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
+                TrackRow(track: track, isPlaying: player.currentTrack == track, showsArtist: showsArtist)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
         .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle(title)
+    }
+}
+
+struct TrackRow: View {
+    let track: Track
+    let isPlaying: Bool
+    let showsArtist: Bool
+    @State private var artworkData: Data?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ArtworkView(data: artworkData, size: 40, cornerRadius: 6)
+                .overlay {
+                    if isPlaying {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(.black.opacity(0.45))
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.white)
+                    }
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.displayTitle)
+                    .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)
+                    .lineLimit(1)
+                if showsArtist, let artist = track.artist {
+                    Text(artist)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+        .task(id: track.url) {
+            artworkData = await ArtworkStore.shared.artwork(for: track)
+        }
     }
 }
