@@ -78,6 +78,7 @@ struct ContentView: View {
                     }
             )
             #endif
+            .miniBarClearance()
             .optionsToolbar()
         } detail: {
             NavigationStack(path: $path) {
@@ -296,11 +297,32 @@ private struct OptionsToolbarModifier: ViewModifier {
 }
 #endif
 
+#if os(iOS)
+// The mini bar overlays the window bottom without insetting scroll views
+// inside the split view's columns, so lists reserve its height themselves.
+private struct MiniBarClearanceModifier: ViewModifier {
+    @Environment(PlayerController.self) private var player
+
+    func body(content: Content) -> some View {
+        content.contentMargins(.bottom, player.currentTrack != nil ? 62 : 0, for: .scrollContent)
+    }
+}
+#endif
+
 extension View {
     @ViewBuilder
     func optionsToolbar() -> some View {
         #if os(iOS)
         modifier(OptionsToolbarModifier())
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func miniBarClearance() -> some View {
+        #if os(iOS)
+        modifier(MiniBarClearanceModifier())
         #else
         self
         #endif
@@ -328,6 +350,7 @@ struct TrackListView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle(title)
+        .miniBarClearance()
         .optionsToolbar()
     }
 }

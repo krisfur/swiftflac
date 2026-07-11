@@ -21,6 +21,7 @@ struct FoldersView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle("Folders")
+        .miniBarClearance()
         .optionsToolbar()
     }
 }
@@ -46,6 +47,7 @@ struct ArtistsView: View {
         .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle("Artists")
+        .miniBarClearance()
         .optionsToolbar()
     }
 }
@@ -69,6 +71,7 @@ struct AlbumsView: View {
         }
         .background(AppBackground())
         .navigationTitle("Albums")
+        .miniBarClearance()
         .optionsToolbar()
     }
 }
