@@ -47,6 +47,10 @@ struct ContentView: View {
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var forwardMode: BrowseMode?
+    #endif
 
     var body: some View {
         NavigationSplitView {
@@ -58,6 +62,17 @@ struct ContentView: View {
             #if os(iOS)
             .scrollContentBackground(.hidden)
             .background(AppBackground())
+            // Swipe left on the Library list to return to the category
+            // you swiped back out of.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 25)
+                    .onEnded { value in
+                        if value.translation.width < -70, abs(value.translation.height) < 50,
+                           let forwardMode {
+                            mode = forwardMode
+                        }
+                    }
+            )
             #endif
             .optionsToolbar()
         } detail: {
@@ -75,18 +90,28 @@ struct ContentView: View {
                     }
             }
             #if os(iOS)
-            // Swipe left to re-enter the screen you just swiped back out of.
+            // Swipe left to re-enter the screen you just swiped back out of;
+            // swipe right at a category root to go all the way back to the
+            // Library list (the system swipe only pops within the stack).
             .simultaneousGesture(
                 DragGesture(minimumDistance: 25)
                     .onEnded { value in
-                        if value.translation.width < -70, abs(value.translation.height) < 50 {
+                        guard abs(value.translation.height) < 50 else { return }
+                        if value.translation.width < -70 {
                             goForward()
+                        } else if value.translation.width > 70, path.isEmpty,
+                                  horizontalSizeClass == .compact {
+                            forwardMode = mode
+                            mode = nil
                         }
                     }
             )
             #endif
         }
         .onChange(of: mode) { oldMode, newMode in
+            #if os(iOS)
+            if newMode != nil { forwardMode = nil }
+            #endif
             if let oldMode { savedPaths[oldMode] = path }
             let restored = newMode.flatMap { savedPaths[$0] } ?? []
             forwardStack = []
