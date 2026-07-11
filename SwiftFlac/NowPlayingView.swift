@@ -141,79 +141,117 @@ struct ToggleIcon: View {
 
 struct NowPlayingView: View {
     @Environment(PlayerController.self) private var player
-    @Environment(\.dismiss) private var dismiss
     @State private var scrubTime: Double?
 
     var body: some View {
-        VStack(spacing: 24) {
-            ArtworkView(data: player.nowPlaying.artworkData, size: 260, cornerRadius: 12)
-                .shadow(radius: 10)
-
-            VStack(spacing: 4) {
-                Text(player.displayTitle)
-                    .font(.title3.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal)
-
-            VStack(spacing: 4) {
-                Slider(
-                    value: Binding(
-                        get: { scrubTime ?? player.currentTime },
-                        set: { scrubTime = $0 }
-                    ),
-                    in: 0...max(player.duration, 1)
-                ) { editing in
-                    if !editing {
-                        if let scrubTime { player.seek(to: scrubTime) }
-                        scrubTime = nil
+        GeometryReader { geo in
+            if geo.size.width > geo.size.height {
+                // Landscape: artwork beside the controls instead of above them.
+                HStack(spacing: 40) {
+                    artwork(fitting: geo.size, landscape: true)
+                    VStack(spacing: 28) {
+                        info
+                        scrubber
+                        transport
                     }
+                    .frame(maxWidth: 440)
                 }
-                HStack {
-                    Text(formatted(scrubTime ?? player.currentTime))
-                    Spacer()
-                    Text(formatted(player.duration))
+                .padding(32)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(spacing: 24) {
+                    Spacer(minLength: 0)
+                    artwork(fitting: geo.size, landscape: false)
+                    info
+                    scrubber
+                    transport
+                    Spacer(minLength: 0)
                 }
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .padding(32)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal)
-
-            HStack(spacing: 36) {
-                ShuffleButton()
-                Button {
-                    player.previous()
-                } label: {
-                    Image(systemName: "backward.fill")
-                        .font(.title)
-                }
-                Button {
-                    player.togglePlayPause()
-                } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 44))
-                        .frame(width: 52)
-                }
-                Button {
-                    player.next()
-                } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.title)
-                }
-                RepeatButton()
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.vertical, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppBackground())
         #if os(macOS)
         .frame(minWidth: 420, minHeight: 540)
         #endif
-        .presentationDragIndicator(.visible)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private func artwork(fitting size: CGSize, landscape: Bool) -> some View {
+        // Reserve room for the controls: beside the artwork in landscape,
+        // below it (~280pt) in portrait.
+        let side = landscape
+            ? min(size.height - 64, size.width * 0.45, 320)
+            : min(size.width - 64, size.height - 280, 320)
+        return ArtworkView(data: player.nowPlaying.artworkData, size: max(side, 120), cornerRadius: 12)
+            .shadow(radius: 10)
+    }
+
+    private var info: some View {
+        VStack(spacing: 4) {
+            Text(player.displayTitle)
+                .font(.title3.weight(.semibold))
+                .multilineTextAlignment(.center)
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
+    }
+
+    private var scrubber: some View {
+        VStack(spacing: 4) {
+            Slider(
+                value: Binding(
+                    get: { scrubTime ?? player.currentTime },
+                    set: { scrubTime = $0 }
+                ),
+                in: 0...max(player.duration, 1)
+            ) { editing in
+                if !editing {
+                    if let scrubTime { player.seek(to: scrubTime) }
+                    scrubTime = nil
+                }
+            }
+            HStack {
+                Text(formatted(scrubTime ?? player.currentTime))
+                Spacer()
+                Text(formatted(player.duration))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
+    }
+
+    private var transport: some View {
+        HStack(spacing: 36) {
+            ShuffleButton()
+            Button {
+                player.previous()
+            } label: {
+                Image(systemName: "backward.fill")
+                    .font(.title)
+            }
+            Button {
+                player.togglePlayPause()
+            } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 44))
+                    .frame(width: 52)
+            }
+            Button {
+                player.next()
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.title)
+            }
+            RepeatButton()
+        }
+        .buttonStyle(.plain)
     }
 
     private var subtitle: String {

@@ -28,6 +28,7 @@ enum LibraryDestination: Hashable {
     case playlist(Playlist)
     case album(Album)
     case artist(Artist)
+    case nowPlaying
 }
 
 struct ContentView: View {
@@ -50,6 +51,9 @@ struct ContentView: View {
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var forwardMode: BrowseMode?
+    // Where the current song was played from, so the now-playing screen
+    // can always swipe back to that list.
+    @State private var playbackOrigin: (mode: BrowseMode?, path: [LibraryDestination])?
     #endif
 
     var body: some View {
@@ -81,11 +85,13 @@ struct ContentView: View {
                     .navigationDestination(for: LibraryDestination.self) { destination in
                         switch destination {
                         case .playlist(let playlist):
-                            TrackListView(title: playlist.name, tracks: playlist.tracks)
+                            TrackListView(title: playlist.name, tracks: playlist.tracks, onPlay: playFromList)
                         case .album(let album):
-                            TrackListView(title: album.name, tracks: album.tracks)
+                            TrackListView(title: album.name, tracks: album.tracks, onPlay: playFromList)
                         case .artist(let artist):
-                            TrackListView(title: artist.name, tracks: artist.tracks, showsArtist: false)
+                            TrackListView(title: artist.name, tracks: artist.tracks, showsArtist: false, onPlay: playFromList)
+                        case .nowPlaying:
+                            NowPlayingView()
                         }
                     }
             }
@@ -132,7 +138,7 @@ struct ContentView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if player.currentTrack != nil {
+            if player.currentTrack != nil, path.last != .nowPlaying {
                 nowPlayingBar
             }
         }
@@ -154,10 +160,6 @@ struct ContentView: View {
                     .onTapGesture { showingNowPlaying = false }
             }
         }
-        #else
-        .sheet(isPresented: $showingNowPlaying) {
-            NowPlayingView()
-        }
         #endif
         .preferredColorScheme(Appearance(rawValue: appearanceRaw)?.colorScheme)
         .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
@@ -172,6 +174,33 @@ struct ContentView: View {
         forwardStack.removeLast()
         isRestoringPath = true
         path.append(next)
+    }
+
+    /// Called when a track is picked from a list: remembers that list as
+    /// the playback origin, then shows the now-playing screen.
+    private func playFromList() {
+        #if os(iOS)
+        playbackOrigin = (mode, path)
+        #endif
+        openNowPlaying()
+    }
+
+    /// On iOS this navigates to the dedicated now-playing screen, restoring
+    /// the list the song was played from underneath it so a back swipe
+    /// returns there; macOS keeps its popover instead.
+    private func openNowPlaying() {
+        #if os(iOS)
+        guard path.last != .nowPlaying else { return }
+        let origin = playbackOrigin ?? (mode ?? .allTracks, [])
+        if mode != origin.mode { mode = origin.mode }
+        // Defer the push one cycle so a mode change's path restoration
+        // (onChange) cannot overwrite it.
+        Task { @MainActor in
+            guard path.last != .nowPlaying else { return }
+            isRestoringPath = true
+            path = origin.path + [.nowPlaying]
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -197,7 +226,7 @@ struct ContentView: View {
             case .folders:
                 FoldersView()
             case .allTracks:
-                TrackListView(title: "All Tracks", tracks: library.allTracks)
+                TrackListView(title: "All Tracks", tracks: library.allTracks, onPlay: playFromList)
             case nil:
                 ContentUnavailableView("Select a Category", systemImage: "music.note")
             }
@@ -214,7 +243,7 @@ struct ContentView: View {
                 NowPlayingView()
             }
         #else
-        NowPlayingBar { showingNowPlaying = true }
+        NowPlayingBar { openNowPlaying() }
         #endif
     }
 }
@@ -283,11 +312,13 @@ struct TrackListView: View {
     let title: String
     let tracks: [Track]
     var showsArtist = true
+    var onPlay: () -> Void = {}
 
     var body: some View {
         List(tracks) { track in
             Button {
                 player.play(track, in: tracks)
+                onPlay()
             } label: {
                 TrackRow(track: track, isPlaying: player.currentTrack == track, showsArtist: showsArtist)
                     .contentShape(Rectangle())
