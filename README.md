@@ -6,6 +6,8 @@
 
 ![Swift](https://img.shields.io/badge/Swift-F05138?style=flat&logo=swift&logoColor=white)
 
+> ⚠️ very much a work in progress
+
 Minimalist local FLAC music player for iOS, iPadOS, and macOS. Built with `SwiftUI` and first-party Apple frameworks. 
 
 Folders are playlists: point it at a music folder and each subfolder becomes a playlist, with album, artist, and all-track views built from the files' own tags and embedded cover art.
