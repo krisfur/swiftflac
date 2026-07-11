@@ -27,7 +27,13 @@ enum BrowseMode: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(PlayerController.self) private var player
+    // iPhone starts on the Library list itself; macOS needs a selection
+    // because its detail pane is always visible.
+    #if os(macOS)
     @State private var mode: BrowseMode? = .folders
+    #else
+    @State private var mode: BrowseMode?
+    #endif
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue

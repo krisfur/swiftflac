@@ -4,7 +4,9 @@ cd "$(dirname "$0")"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
 BUNDLE_ID="com.kfurman.SwiftFlac"
-MUSIC_DIR="${MUSIC_DIR:-$HOME/Downloads/Music}"
+# Drop a Music/ folder (subfolders = playlists) next to this script to
+# have it seeded into the simulator app's Documents; it is gitignored.
+MUSIC_DIR="${MUSIC_DIR:-$PWD/Music}"
 
 # Pick a booted iPhone simulator if there is one, otherwise the first available iPhone.
 UDID=$(xcrun simctl list devices booted | grep -m1 "iPhone" | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' || true)
