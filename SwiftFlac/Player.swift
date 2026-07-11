@@ -26,6 +26,7 @@ final class PlayerController {
     private let player = AVPlayer()
     private var originalQueue: [Track] = []
     private var timeObserver: Any?
+    private var isSeeking = false
 
     private static let shuffleKey = "playerShuffle"
     private static let repeatKey = "playerRepeatMode"
@@ -52,7 +53,8 @@ final class PlayerController {
             queue: .main
         ) { [weak self] time in
             MainActor.assumeIsolated {
-                self?.currentTime = time.seconds
+                guard let self, !self.isSeeking else { return }
+                self.currentTime = time.seconds
             }
         }
         NotificationCenter.default.addObserver(
@@ -134,12 +136,17 @@ final class PlayerController {
     func seek(to time: TimeInterval) {
         guard player.currentItem != nil else { return }
         let target = min(max(0, time), max(duration - 0.1, 0))
+        // Freeze observer updates until the async seek lands, otherwise the
+        // slider briefly snaps back to the pre-seek position.
+        isSeeking = true
+        currentTime = target
         player.seek(
             to: CMTime(seconds: target, preferredTimescale: 600),
             toleranceBefore: .zero,
             toleranceAfter: .zero
-        )
-        currentTime = target
+        ) { [weak self] _ in
+            Task { @MainActor in self?.isSeeking = false }
+        }
         updateNowPlayingInfo()
     }
 
@@ -174,7 +181,10 @@ final class PlayerController {
 
     private func startCurrentTrack(reloadMetadata: Bool = true) {
         guard let track = currentTrack else { return }
-        let item = AVPlayerItem(url: track.url)
+        // Without the precise-timing option AVFoundation only estimates the
+        // duration of compressed audio, so tracks outrun their slider.
+        let asset = AVURLAsset(url: track.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+        let item = AVPlayerItem(asset: asset)
         player.replaceCurrentItem(with: item)
         player.play()
         isPlaying = true
