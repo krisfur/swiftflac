@@ -18,6 +18,10 @@ echo "Using simulator $UDID"
 xcrun simctl boot "$UDID" 2>/dev/null || true
 open -a Simulator
 
+# Keep Spotlight/LaunchServices away from build products: a registered
+# iphonesimulator bundle shares the bundle ID and hijacks the Dock icon.
+mkdir -p build && touch build/.metadata_never_index
+
 xcodebuild -project SwiftFlac.xcodeproj -scheme SwiftFlac -configuration Debug \
     -destination "id=$UDID" -derivedDataPath build build
 
