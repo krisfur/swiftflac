@@ -157,7 +157,7 @@ struct NowPlayingView: View {
                     .frame(maxWidth: 440)
                 }
                 .padding(32)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: geo.size.width, height: geo.size.height)
             } else {
                 VStack(spacing: 24) {
                     Spacer(minLength: 0)
@@ -168,7 +168,10 @@ struct NowPlayingView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(32)
-                .frame(maxWidth: .infinity)
+                // Pin to the container size: the iOS 26 Slider reports more
+                // width than proposed, which would otherwise inflate the
+                // stack and hang the overflow off the trailing edge.
+                .frame(width: geo.size.width, height: geo.size.height)
             }
         }
         .background(AppBackground())
