@@ -19,40 +19,102 @@ struct NowPlayingBar: View {
     let onTap: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            ArtworkView(data: player.nowPlaying.artworkData, size: 40, cornerRadius: 6)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(player.displayTitle)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                if let artist = player.nowPlaying.artist {
-                    Text(artist)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            VStack(spacing: 0) {
+                ProgressLine(progress: player.duration > 0 ? player.currentTime / player.duration : 0)
+                HStack(spacing: 14) {
+                    ArtworkView(data: player.nowPlaying.artworkData, size: 40, cornerRadius: 6)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(player.displayTitle)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                        if let artist = player.nowPlaying.artist {
+                            Text(artist)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    ShuffleButton(compact: true)
+                    Button {
+                        player.previous()
+                    } label: {
+                        Image(systemName: "backward.fill")
+                            .font(.body)
+                    }
+                    Button {
+                        player.togglePlayPause()
+                    } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.title3)
+                            .frame(width: 24)
+                    }
+                    Button {
+                        player.next()
+                    } label: {
+                        Image(systemName: "forward.fill")
+                            .font(.body)
+                    }
+                    RepeatButton(compact: true)
                 }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
             }
-            Spacer()
-            Button {
-                player.togglePlayPause()
-            } label: {
-                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-            }
-            .buttonStyle(.plain)
-            Button {
-                player.next()
-            } label: {
-                Image(systemName: "forward.fill")
-                    .font(.title3)
-            }
-            .buttonStyle(.plain)
+            .background(.regularMaterial)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.regularMaterial)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
+    }
+}
+
+struct ProgressLine: View {
+    let progress: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(.quaternary)
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(width: geo.size.width * min(max(progress, 0), 1))
+            }
+        }
+        .frame(height: 3)
+    }
+}
+
+struct ShuffleButton: View {
+    @Environment(PlayerController.self) private var player
+    var compact = false
+
+    var body: some View {
+        Button {
+            player.toggleShuffle()
+        } label: {
+            Image(systemName: "shuffle")
+                .font(compact ? .footnote : .title3)
+                .foregroundStyle(player.isShuffling ? Color.accentColor : Color.secondary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct RepeatButton: View {
+    @Environment(PlayerController.self) private var player
+    var compact = false
+
+    var body: some View {
+        Button {
+            player.cycleRepeatMode()
+        } label: {
+            Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
+                .font(compact ? .footnote : .title3)
+                .foregroundStyle(player.repeatMode != .off ? Color.accentColor : Color.secondary)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -100,7 +162,8 @@ struct NowPlayingView: View {
                 }
                 .padding(.horizontal)
 
-                HStack(spacing: 48) {
+                HStack(spacing: 36) {
+                    ShuffleButton()
                     Button {
                         player.previous()
                     } label: {
@@ -112,6 +175,7 @@ struct NowPlayingView: View {
                     } label: {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                             .font(.system(size: 44))
+                            .frame(width: 52)
                     }
                     Button {
                         player.next()
@@ -119,12 +183,14 @@ struct NowPlayingView: View {
                         Image(systemName: "forward.fill")
                             .font(.title)
                     }
+                    RepeatButton()
                 }
                 .buttonStyle(.plain)
             }
             .padding(.vertical, 32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(AppBackground())
         #if os(macOS)
         .frame(minWidth: 420, minHeight: 540)
         #endif

@@ -23,6 +23,10 @@ struct ContentView: View {
                 .tag(playlist)
             }
             .navigationTitle("Playlists")
+            #if os(iOS)
+            .scrollContentBackground(.hidden)
+            .background(AppBackground())
+            #endif
             .overlay {
                 if library.playlists.isEmpty {
                     ContentUnavailableView {
@@ -47,11 +51,14 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            if let selectedPlaylist {
-                TrackListView(playlist: selectedPlaylist)
-            } else {
-                ContentUnavailableView("Select a Playlist", systemImage: "music.note.list")
+            Group {
+                if let selectedPlaylist {
+                    TrackListView(playlist: selectedPlaylist)
+                } else {
+                    ContentUnavailableView("Select a Playlist", systemImage: "music.note.list")
+                }
             }
+            .background(AppBackground())
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if player.currentTrack != nil {
@@ -91,6 +98,8 @@ struct TrackListView: View {
             }
             .buttonStyle(.plain)
         }
+        .scrollContentBackground(.hidden)
+        .background(AppBackground())
         .navigationTitle(playlist.name)
     }
 }

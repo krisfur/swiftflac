@@ -7,6 +7,10 @@ import UIKit
 import AppKit
 #endif
 
+enum RepeatMode {
+    case off, all, one
+}
+
 @MainActor
 @Observable
 final class PlayerController: NSObject {
@@ -14,8 +18,11 @@ final class PlayerController: NSObject {
     private(set) var currentIndex: Int?
     private(set) var isPlaying = false
     private(set) var nowPlaying = TrackMetadata()
+    private(set) var isShuffling = false
+    private(set) var repeatMode: RepeatMode = .off
 
     private var player: AVAudioPlayer?
+    private var originalQueue: [Track] = []
 
     var currentTrack: Track? {
         guard let currentIndex, queue.indices.contains(currentIndex) else { return nil }
@@ -37,9 +44,39 @@ final class PlayerController: NSObject {
     }
 
     func play(_ track: Track, from playlist: Playlist) {
-        queue = playlist.tracks
-        currentIndex = playlist.tracks.firstIndex(of: track)
+        originalQueue = playlist.tracks
+        if isShuffling {
+            var rest = playlist.tracks.filter { $0 != track }
+            rest.shuffle()
+            queue = [track] + rest
+            currentIndex = 0
+        } else {
+            queue = playlist.tracks
+            currentIndex = playlist.tracks.firstIndex(of: track)
+        }
         startCurrentTrack()
+    }
+
+    func toggleShuffle() {
+        isShuffling.toggle()
+        guard let current = currentTrack else { return }
+        if isShuffling {
+            var rest = queue.filter { $0 != current }
+            rest.shuffle()
+            queue = [current] + rest
+            currentIndex = 0
+        } else {
+            queue = originalQueue
+            currentIndex = originalQueue.firstIndex(of: current)
+        }
+    }
+
+    func cycleRepeatMode() {
+        switch repeatMode {
+        case .off: repeatMode = .all
+        case .all: repeatMode = .one
+        case .one: repeatMode = .off
+        }
     }
 
     func togglePlayPause() {
@@ -73,17 +110,31 @@ final class PlayerController: NSObject {
     }
 
     private func advance(by offset: Int) {
-        guard let currentIndex else { return }
-        let target = currentIndex + offset
-        guard queue.indices.contains(target) else {
-            // End of queue: stop but keep the last track visible.
-            player?.stop()
-            isPlaying = false
-            updateNowPlayingInfo()
-            return
+        guard let currentIndex, !queue.isEmpty else { return }
+        var target = currentIndex + offset
+        if !queue.indices.contains(target) {
+            guard repeatMode == .all else {
+                // End of queue: stop but keep the last track visible.
+                player?.stop()
+                isPlaying = false
+                updateNowPlayingInfo()
+                return
+            }
+            target = (target + queue.count) % queue.count
         }
         self.currentIndex = target
         startCurrentTrack()
+    }
+
+    private func trackFinished() {
+        if repeatMode == .one {
+            seek(to: 0)
+            player?.play()
+            isPlaying = true
+            updateNowPlayingInfo()
+        } else {
+            advance(by: 1)
+        }
     }
 
     private func startCurrentTrack() {
@@ -169,6 +220,6 @@ final class PlayerController: NSObject {
 
 extension PlayerController: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.next() }
+        Task { @MainActor in self.trackFinished() }
     }
 }

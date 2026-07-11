@@ -26,20 +26,24 @@ struct TrackMetadata: Equatable {
 func loadMetadata(for track: Track) async -> TrackMetadata {
     var metadata = TrackMetadata()
     let asset = AVURLAsset(url: track.url)
-    guard let items = try? await asset.load(.commonMetadata) else { return metadata }
-    for item in items {
-        switch item.commonKey {
-        case .commonKeyTitle:
-            metadata.title = try? await item.load(.stringValue)
-        case .commonKeyArtist:
-            metadata.artist = try? await item.load(.stringValue)
-        case .commonKeyAlbumName:
-            metadata.album = try? await item.load(.stringValue)
-        case .commonKeyArtwork:
-            metadata.artworkData = try? await item.load(.dataValue)
-        default:
-            break
+    if let items = try? await asset.load(.commonMetadata) {
+        for item in items {
+            switch item.commonKey {
+            case .commonKeyTitle:
+                metadata.title = try? await item.load(.stringValue)
+            case .commonKeyArtist:
+                metadata.artist = try? await item.load(.stringValue)
+            case .commonKeyAlbumName:
+                metadata.album = try? await item.load(.stringValue)
+            case .commonKeyArtwork:
+                metadata.artworkData = try? await item.load(.dataValue)
+            default:
+                break
+            }
         }
+    }
+    if metadata.artworkData == nil, track.url.pathExtension.lowercased() == "flac" {
+        metadata.artworkData = FlacArtwork.pictureData(in: track.url)
     }
     return metadata
 }
