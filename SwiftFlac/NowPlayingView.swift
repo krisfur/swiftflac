@@ -23,19 +23,25 @@ struct NowPlayingBar: View {
             VStack(spacing: 0) {
                 ProgressLine(progress: player.duration > 0 ? player.currentTime / player.duration : 0)
                 HStack(spacing: 14) {
-                    ArtworkView(data: player.nowPlaying.artworkData, size: 40, cornerRadius: 6)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(player.displayTitle)
-                            .font(.subheadline.weight(.medium))
-                            .lineLimit(1)
-                        if let artist = player.nowPlaying.artist {
-                            Text(artist)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    // Only this leading region opens the full player, so the
+                    // transport buttons never race against the tap gesture.
+                    HStack(spacing: 14) {
+                        ArtworkView(data: player.nowPlaying.artworkData, size: 40, cornerRadius: 6)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(player.displayTitle)
+                                .font(.subheadline.weight(.medium))
                                 .lineLimit(1)
+                            if let artist = player.nowPlaying.artist {
+                                Text(artist)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
+                        Spacer(minLength: 8)
                     }
-                    Spacer(minLength: 8)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onTap)
                     ShuffleButton(compact: true)
                     Button {
                         player.previous()
@@ -63,8 +69,6 @@ struct NowPlayingBar: View {
                 .padding(.vertical, 8)
             }
             .background(.regularMaterial)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onTap)
         }
     }
 }
@@ -94,9 +98,7 @@ struct ShuffleButton: View {
         Button {
             player.toggleShuffle()
         } label: {
-            Image(systemName: "shuffle")
-                .font(compact ? .footnote : .title3)
-                .foregroundStyle(player.isShuffling ? Color.accentColor : Color.secondary)
+            ToggleIcon(systemName: "shuffle", active: player.isShuffling, compact: compact)
         }
         .buttonStyle(.plain)
     }
@@ -110,11 +112,32 @@ struct RepeatButton: View {
         Button {
             player.cycleRepeatMode()
         } label: {
-            Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                .font(compact ? .footnote : .title3)
-                .foregroundStyle(player.repeatMode != .off ? Color.accentColor : Color.secondary)
+            ToggleIcon(
+                systemName: player.repeatMode == .one ? "repeat.1" : "repeat",
+                active: player.repeatMode != .off,
+                compact: compact
+            )
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Active state gets an accent chip behind the icon so on/off is
+/// obvious in both light and dark mode.
+struct ToggleIcon: View {
+    let systemName: String
+    let active: Bool
+    var compact = false
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(compact ? .footnote : .title3)
+            .foregroundStyle(active ? Color.accentColor : Color.secondary)
+            .padding(compact ? 4 : 6)
+            .background(
+                active ? Color.accentColor.opacity(0.22) : .clear,
+                in: RoundedRectangle(cornerRadius: 5)
+            )
     }
 }
 

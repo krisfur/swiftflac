@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var selectedPlaylist: Playlist?
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
+    @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
 
     var body: some View {
         NavigationSplitView {
@@ -40,13 +41,21 @@ struct ContentView: View {
             }
             .toolbar {
                 ToolbarItem {
-                    Button("Choose Folder", systemImage: "folder.badge.plus") {
-                        showingFolderPicker = true
-                    }
-                }
-                ToolbarItem {
-                    Button("Rescan", systemImage: "arrow.clockwise") {
-                        library.rescan()
+                    Menu {
+                        Button("Choose Folder…", systemImage: "folder.badge.plus") {
+                            showingFolderPicker = true
+                        }
+                        Button("Rescan Library", systemImage: "arrow.clockwise") {
+                            library.rescan()
+                        }
+                        Picker("Appearance", selection: $appearanceRaw) {
+                            ForEach(Appearance.allCases, id: \.rawValue) { appearance in
+                                Text(appearance.label).tag(appearance.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    } label: {
+                        Label("Options", systemImage: "ellipsis.circle")
                     }
                 }
             }
@@ -62,18 +71,46 @@ struct ContentView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if player.currentTrack != nil {
-                NowPlayingBar { showingNowPlaying = true }
+                nowPlayingBar
             }
         }
+        #if os(macOS)
+        // Swallow the popover-dismissing click so it can't hit a track
+        // row or a transport button underneath.
+        .overlay {
+            if showingNowPlaying {
+                Color.black.opacity(0.15)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { showingNowPlaying = false }
+            }
+        }
+        #else
         .sheet(isPresented: $showingNowPlaying) {
             NowPlayingView()
         }
+        #endif
+        .preferredColorScheme(Appearance(rawValue: appearanceRaw)?.colorScheme)
         .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 library.setRootFolder(url)
                 selectedPlaylist = nil
             }
         }
+    }
+
+    // On macOS a popover dismisses when clicking anywhere else, which a
+    // sheet there does not; iOS keeps the swipeable sheet.
+    @ViewBuilder
+    private var nowPlayingBar: some View {
+        #if os(macOS)
+        NowPlayingBar { showingNowPlaying = true }
+            .popover(isPresented: $showingNowPlaying, arrowEdge: .bottom) {
+                NowPlayingView()
+            }
+        #else
+        NowPlayingBar { showingNowPlaying = true }
+        #endif
     }
 }
 
