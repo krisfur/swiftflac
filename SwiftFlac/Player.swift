@@ -140,9 +140,11 @@ final class PlayerController {
         // slider briefly snaps back to the pre-seek position.
         isSeeking = true
         currentTime = target
+        // Sample-exact seeks can wedge near the end of a FLAC; allow slack
+        // before the target (never after, so we can't trip the track end).
         player.seek(
             to: CMTime(seconds: target, preferredTimescale: 600),
-            toleranceBefore: .zero,
+            toleranceBefore: .positiveInfinity,
             toleranceAfter: .zero
         ) { [weak self] _ in
             Task { @MainActor in self?.isSeeking = false }
@@ -188,6 +190,7 @@ final class PlayerController {
         player.replaceCurrentItem(with: item)
         player.play()
         isPlaying = true
+        isSeeking = false
         currentTime = 0
         duration = 0
         Task {
