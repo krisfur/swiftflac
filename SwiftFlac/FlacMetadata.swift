@@ -4,7 +4,7 @@ import Foundation
 /// AVFoundation does not surface FLAC VORBIS_COMMENT or PICTURE blocks
 /// through common metadata, so this parses the container format directly.
 enum FlacMetadata {
-    static func read(from url: URL) -> TrackMetadata {
+    static func read(from url: URL, readArtwork: Bool = true) -> TrackMetadata {
         var metadata = TrackMetadata()
         guard let file = try? FileHandle(forReadingFrom: url) else { return metadata }
         defer { try? file.close() }
@@ -20,7 +20,7 @@ enum FlacMetadata {
             case 4:  // VORBIS_COMMENT
                 guard let block = try? file.read(upToCount: length), block.count == length else { break loop }
                 parseVorbisComments(block, into: &metadata)
-            case 6:  // PICTURE
+            case 6 where readArtwork:  // PICTURE
                 guard let block = try? file.read(upToCount: length), block.count == length else { break loop }
                 if let picture = parsePicture(block) {
                     if picture.type == 3 { metadata.artworkData = picture.data }  // front cover wins
@@ -59,6 +59,7 @@ enum FlacMetadata {
             case "TITLE": metadata.title = metadata.title ?? value
             case "ARTIST": metadata.artist = metadata.artist ?? value
             case "ALBUM": metadata.album = metadata.album ?? value
+            case "ALBUMARTIST": metadata.albumArtist = metadata.albumArtist ?? value
             default: break
             }
         }

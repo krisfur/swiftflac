@@ -1,45 +1,47 @@
 import SwiftUI
 
+enum BrowseMode: String, CaseIterable, Identifiable {
+    case albums, artists, folders, allTracks
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .albums: "Albums"
+        case .artists: "Artists"
+        case .folders: "Folders"
+        case .allTracks: "All Tracks"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .albums: "square.stack"
+        case .artists: "music.mic"
+        case .folders: "folder"
+        case .allTracks: "music.note.list"
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(PlayerController.self) private var player
-    @State private var selectedPlaylist: Playlist?
+    @State private var mode: BrowseMode? = .folders
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
 
     var body: some View {
         NavigationSplitView {
-            List(library.playlists, selection: $selectedPlaylist) { playlist in
-                Label {
-                    VStack(alignment: .leading) {
-                        Text(playlist.name)
-                        Text("\(playlist.tracks.count) tracks")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "folder.fill")
-                }
-                .tag(playlist)
+            List(BrowseMode.allCases, selection: $mode) { mode in
+                Label(mode.title, systemImage: mode.icon)
+                    .tag(mode)
             }
-            .navigationTitle("Playlists")
+            .navigationTitle("Library")
             #if os(iOS)
             .scrollContentBackground(.hidden)
             .background(AppBackground())
-            #endif
-            .overlay {
-                if library.playlists.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Music", systemImage: "music.note.list")
-                    } description: {
-                        Text("Choose a folder with music in it. Each subfolder becomes a playlist.")
-                    } actions: {
-                        Button("Choose Folder") { showingFolderPicker = true }
-                    }
-                }
-            }
-            #if os(iOS)
             .toolbar {
                 ToolbarItem {
                     optionsMenu
@@ -47,14 +49,18 @@ struct ContentView: View {
             }
             #endif
         } detail: {
-            Group {
-                if let selectedPlaylist {
-                    TrackListView(playlist: selectedPlaylist)
-                } else {
-                    ContentUnavailableView("Select a Playlist", systemImage: "music.note.list")
-                }
+            NavigationStack {
+                detailRoot
+                    .navigationDestination(for: Playlist.self) { playlist in
+                        TrackListView(title: playlist.name, tracks: playlist.tracks)
+                    }
+                    .navigationDestination(for: Album.self) { album in
+                        TrackListView(title: album.name, tracks: album.tracks)
+                    }
+                    .navigationDestination(for: Artist.self) { artist in
+                        TrackListView(title: artist.name, tracks: artist.tracks, showsArtist: false)
+                    }
             }
-            .background(AppBackground())
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if player.currentTrack != nil {
@@ -88,7 +94,36 @@ struct ContentView: View {
         .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 library.setRootFolder(url)
-                selectedPlaylist = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var detailRoot: some View {
+        if library.allTracks.isEmpty {
+            if library.isScanning {
+                ProgressView()
+            } else {
+                ContentUnavailableView {
+                    Label("No Music", systemImage: "music.note.list")
+                } description: {
+                    Text("Choose a folder with music in it. Each subfolder becomes a playlist.")
+                } actions: {
+                    Button("Choose Folder") { showingFolderPicker = true }
+                }
+            }
+        } else {
+            switch mode {
+            case .albums:
+                AlbumsView()
+            case .artists:
+                ArtistsView()
+            case .folders:
+                FoldersView()
+            case .allTracks:
+                TrackListView(title: "All Tracks", tracks: library.allTracks)
+            case nil:
+                ContentUnavailableView("Select a Category", systemImage: "music.note")
             }
         }
     }
@@ -129,19 +164,29 @@ struct ContentView: View {
 
 struct TrackListView: View {
     @Environment(PlayerController.self) private var player
-    let playlist: Playlist
+    let title: String
+    let tracks: [Track]
+    var showsArtist = true
 
     var body: some View {
-        List(playlist.tracks) { track in
+        List(tracks) { track in
             Button {
-                player.play(track, from: playlist)
+                player.play(track, in: tracks)
             } label: {
                 HStack {
                     Image(systemName: player.currentTrack == track ? "speaker.wave.2.fill" : "music.note")
                         .foregroundStyle(player.currentTrack == track ? Color.accentColor : Color.secondary)
                         .frame(width: 24)
-                    Text(track.displayName)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.displayTitle)
+                            .lineLimit(1)
+                        if showsArtist, let artist = track.artist {
+                            Text(artist)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer()
                 }
                 .contentShape(Rectangle())
@@ -150,6 +195,6 @@ struct TrackListView: View {
         }
         .scrollContentBackground(.hidden)
         .background(AppBackground())
-        .navigationTitle(playlist.name)
+        .navigationTitle(title)
     }
 }

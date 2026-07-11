@@ -1,14 +1,26 @@
 import Foundation
 import Observation
 
+struct LibraryContent {
+    var playlists: [Playlist] = []
+    var albums: [Album] = []
+    var artists: [Artist] = []
+    var allTracks: [Track] = []
+}
+
 @MainActor
 @Observable
 final class MusicLibrary {
     private(set) var playlists: [Playlist] = []
+    private(set) var albums: [Album] = []
+    private(set) var artists: [Artist] = []
+    private(set) var allTracks: [Track] = []
+    private(set) var isScanning = false
     private(set) var rootURL: URL?
 
+    private var scanGeneration = 0
+
     private static let bookmarkKey = "libraryFolderBookmark"
-    private static let audioExtensions: Set<String> = ["flac"]
 
     init() {
         restoreRoot()
@@ -29,35 +41,28 @@ final class MusicLibrary {
     }
 
     func rescan() {
+        scanGeneration += 1
+        let generation = scanGeneration
         guard let rootURL else {
-            playlists = []
+            apply(LibraryContent())
             return
         }
-        let fm = FileManager.default
-        let contents = (try? fm.contentsOfDirectory(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )) ?? []
-
-        var result: [Playlist] = []
-
-        // Loose tracks sitting directly in the root form their own playlist.
-        let looseTracks = sortedTracks(contents.filter(Self.isAudioFile))
-        if !looseTracks.isEmpty {
-            result.append(Playlist(name: rootURL.lastPathComponent, folderURL: rootURL, tracks: looseTracks))
-        }
-
-        let folders = contents
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-        for folder in folders {
-            let tracks = tracksInFolder(folder)
-            if !tracks.isEmpty {
-                result.append(Playlist(name: folder.lastPathComponent, folderURL: folder, tracks: tracks))
+        isScanning = true
+        Task.detached(priority: .userInitiated) {
+            let content = LibraryScanner.scan(root: rootURL)
+            await MainActor.run {
+                guard generation == self.scanGeneration else { return }
+                self.apply(content)
             }
         }
-        playlists = result
+    }
+
+    private func apply(_ content: LibraryContent) {
+        playlists = content.playlists
+        albums = content.albums
+        artists = content.artists
+        allTracks = content.allTracks
+        isScanning = false
     }
 
     private func restoreRoot() {
@@ -80,23 +85,93 @@ final class MusicLibrary {
         rootURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         #endif
     }
+}
+
+/// Filesystem walking and tag grouping, kept off the main actor since it
+/// reads the header of every audio file in the library.
+private enum LibraryScanner {
+    private static let audioExtensions: Set<String> = ["flac"]
+
+    static func scan(root: URL) -> LibraryContent {
+        let fm = FileManager.default
+        let contents = (try? fm.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        var playlists: [Playlist] = []
+
+        // Loose tracks sitting directly in the root form their own playlist.
+        let looseTracks = tracks(from: contents.filter(isAudioFile))
+        if !looseTracks.isEmpty {
+            playlists.append(Playlist(name: root.lastPathComponent, folderURL: root, tracks: looseTracks))
+        }
+
+        let folders = contents
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        for folder in folders {
+            let folderTracks = tracks(from: audioFiles(under: folder))
+            if !folderTracks.isEmpty {
+                playlists.append(Playlist(name: folder.lastPathComponent, folderURL: folder, tracks: folderTracks))
+            }
+        }
+
+        let all = playlists.flatMap(\.tracks)
+        return LibraryContent(
+            playlists: playlists,
+            albums: albums(from: all),
+            artists: artists(from: all),
+            allTracks: all.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+        )
+    }
 
     /// Collects audio files anywhere below the folder, so nested album folders still play.
-    private func tracksInFolder(_ folder: URL) -> [Track] {
+    private static func audioFiles(under folder: URL) -> [URL] {
         let fm = FileManager.default
         var files: [URL] = []
         if let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            for case let url as URL in enumerator where Self.isAudioFile(url) {
+            for case let url as URL in enumerator where isAudioFile(url) {
                 files.append(url)
             }
         }
-        return sortedTracks(files)
+        return files
     }
 
-    private func sortedTracks(_ urls: [URL]) -> [Track] {
+    private static func tracks(from urls: [URL]) -> [Track] {
         urls
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-            .map(Track.init)
+            .map { url in
+                let tags = FlacMetadata.read(from: url, readArtwork: false)
+                return Track(url: url, title: tags.title, artist: tags.artist, album: tags.album, albumArtist: tags.albumArtist)
+            }
+    }
+
+    private static func albums(from tracks: [Track]) -> [Album] {
+        let groups = Dictionary(grouping: tracks) { track in
+            "\(track.albumArtist ?? track.artist ?? "")|\(track.album ?? "")"
+        }
+        return groups.values.map { group in
+            let artists = Set(group.compactMap(\.artist))
+            let artist = group[0].albumArtist
+                ?? (artists.count == 1 ? artists.first : (artists.isEmpty ? nil : "Various Artists"))
+            let sorted = group.sorted {
+                $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
+            }
+            return Album(name: group[0].album ?? "Unknown Album", artist: artist, tracks: sorted)
+        }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private static func artists(from tracks: [Track]) -> [Artist] {
+        Dictionary(grouping: tracks) { $0.artist ?? "Unknown Artist" }
+            .map { name, group in
+                Artist(name: name, tracks: group.sorted {
+                    $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending
+                })
+            }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     private static func isAudioFile(_ url: URL) -> Bool {

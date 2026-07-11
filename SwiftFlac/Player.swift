@@ -36,7 +36,7 @@ final class PlayerController {
         return queue[currentIndex]
     }
 
-    var displayTitle: String { nowPlaying.title ?? currentTrack?.displayName ?? "" }
+    var displayTitle: String { nowPlaying.title ?? currentTrack?.displayTitle ?? "" }
 
     init() {
         isShuffling = UserDefaults.standard.bool(forKey: Self.shuffleKey)
@@ -71,16 +71,16 @@ final class PlayerController {
         }
     }
 
-    func play(_ track: Track, from playlist: Playlist) {
-        originalQueue = playlist.tracks
+    func play(_ track: Track, in tracks: [Track]) {
+        originalQueue = tracks
         if isShuffling {
-            var rest = playlist.tracks.filter { $0 != track }
+            var rest = tracks.filter { $0 != track }
             rest.shuffle()
             queue = [track] + rest
             currentIndex = 0
         } else {
-            queue = playlist.tracks
-            currentIndex = playlist.tracks.firstIndex(of: track)
+            queue = tracks
+            currentIndex = tracks.firstIndex(of: track)
         }
         startCurrentTrack()
     }
@@ -252,7 +252,7 @@ final class PlayerController {
             return
         }
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: nowPlaying.title ?? track.displayName,
+            MPMediaItemPropertyTitle: nowPlaying.title ?? track.displayTitle,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,

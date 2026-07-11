@@ -3,9 +3,13 @@ import AVFoundation
 
 struct Track: Identifiable, Hashable {
     let url: URL
+    var title: String?
+    var artist: String?
+    var album: String?
+    var albumArtist: String?
 
     var id: URL { url }
-    var displayName: String { url.deletingPathExtension().lastPathComponent }
+    var displayTitle: String { title ?? url.deletingPathExtension().lastPathComponent }
 }
 
 struct Playlist: Identifiable, Hashable {
@@ -16,10 +20,26 @@ struct Playlist: Identifiable, Hashable {
     var id: URL { folderURL }
 }
 
+struct Album: Identifiable, Hashable {
+    let name: String
+    let artist: String?
+    let tracks: [Track]
+
+    var id: String { "\(artist ?? "")|\(name)" }
+}
+
+struct Artist: Identifiable, Hashable {
+    let name: String
+    let tracks: [Track]
+
+    var id: String { name }
+}
+
 struct TrackMetadata: Equatable {
     var title: String?
     var artist: String?
     var album: String?
+    var albumArtist: String?
     var artworkData: Data?
 }
 
@@ -47,6 +67,7 @@ func loadMetadata(for track: Track) async -> TrackMetadata {
         metadata.title = metadata.title ?? flac.title
         metadata.artist = metadata.artist ?? flac.artist
         metadata.album = metadata.album ?? flac.album
+        metadata.albumArtist = metadata.albumArtist ?? flac.albumArtist
         metadata.artworkData = metadata.artworkData ?? flac.artworkData
     }
     return metadata
