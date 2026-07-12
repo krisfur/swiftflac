@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 #if canImport(UIKit)
 import UIKit
 #else
@@ -141,7 +142,19 @@ struct ToggleIcon: View {
 
 struct NowPlayingView: View {
     @Environment(PlayerController.self) private var player
+    @Environment(MusicLibrary.self) private var library
+    @Environment(\.libraryNavigate) private var libraryNavigate
     @State private var dragFraction: Double?
+
+    private var currentAlbum: Album? {
+        guard let track = player.currentTrack else { return nil }
+        return library.albums.first { $0.tracks.contains(track) }
+    }
+
+    private var currentArtist: Artist? {
+        guard let track = player.currentTrack else { return nil }
+        return library.artists.first { $0.tracks.contains(track) }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -177,9 +190,20 @@ struct NowPlayingView: View {
         .background(AppBackground())
         #if os(macOS)
         .frame(minWidth: 420, minHeight: 540)
+        .overlay(alignment: .topTrailing) {
+            AirPlayButton(player: player.routePickerPlayer)
+                .frame(width: 24, height: 24)
+                .padding(12)
+        }
         #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                AirPlayButton(player: player.routePickerPlayer)
+                    .frame(width: 28, height: 28)
+            }
+        }
         #endif
     }
 
@@ -194,14 +218,28 @@ struct NowPlayingView: View {
     }
 
     private var info: some View {
-        VStack(spacing: 4) {
-            Text(player.displayTitle)
-                .font(.title3.weight(.semibold))
-                .multilineTextAlignment(.center)
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        Menu {
+            if let album = currentAlbum {
+                Button("Go to Album", systemImage: "square.stack") {
+                    libraryNavigate(.album(album))
+                }
+            }
+            if let artist = currentArtist {
+                Button("Go to Artist", systemImage: "music.mic") {
+                    libraryNavigate(.artist(artist))
+                }
+            }
+        } label: {
+            VStack(spacing: 4) {
+                Text(player.displayTitle)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .buttonStyle(.plain)
         .padding(.horizontal)
     }
 
@@ -267,6 +305,35 @@ struct NowPlayingView: View {
         Duration.seconds(time).formatted(.time(pattern: .minuteSecond))
     }
 }
+
+#if os(iOS)
+struct AirPlayButton: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.backgroundColor = .clear
+        picker.tintColor = .secondaryLabel
+        picker.activeTintColor = .label
+        return picker
+    }
+
+    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
+}
+#else
+struct AirPlayButton: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.player = player
+        picker.isRoutePickerButtonBordered = false
+        return picker
+    }
+
+    func updateNSView(_ view: AVRoutePickerView, context: Context) {}
+}
+#endif
 
 /// A capsule progress bar with drag-to-seek. `onScrub` is called with the
 /// dragged fraction and whether the touch has ended.

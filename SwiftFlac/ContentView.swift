@@ -31,6 +31,19 @@ enum LibraryDestination: Hashable {
     case nowPlaying
 }
 
+/// Lets deeply nested views (e.g. the now-playing screen) push a library
+/// destination onto the detail stack.
+private struct LibraryNavigateKey: EnvironmentKey {
+    static let defaultValue: (LibraryDestination) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var libraryNavigate: (LibraryDestination) -> Void {
+        get { self[LibraryNavigateKey.self] }
+        set { self[LibraryNavigateKey.self] = newValue }
+    }
+}
+
 struct ContentView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(PlayerController.self) private var player
@@ -162,6 +175,12 @@ struct ContentView: View {
             }
         }
         #endif
+        .environment(\.libraryNavigate) { destination in
+            #if os(macOS)
+            showingNowPlaying = false
+            #endif
+            path.append(destination)
+        }
         .preferredColorScheme(Appearance(rawValue: appearanceRaw)?.colorScheme)
         .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
@@ -350,14 +369,15 @@ struct TrackListView: View {
         VStack(spacing: 0) {
             SearchField(text: $searchText, prompt: "Title or Artist")
             List(filteredTracks) { track in
-                Button {
-                    player.play(track, in: filteredTracks)
-                    onPlay()
-                } label: {
-                    TrackRow(track: track, isPlaying: player.currentTrack == track, showsArtist: showsArtist)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                // A tap gesture (not a Button): buttons fire on release even
+                // after a long horizontal swipe across the row, which turned
+                // the forward-swipe into an accidental track change.
+                TrackRow(track: track, isPlaying: player.currentTrack == track, showsArtist: showsArtist)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        player.play(track, in: filteredTracks)
+                        onPlay()
+                    }
             }
             .scrollContentBackground(.hidden)
             .overlay {

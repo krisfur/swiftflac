@@ -24,6 +24,8 @@ final class PlayerController {
     private(set) var duration: TimeInterval = 0
 
     private let player = AVPlayer()
+    // The macOS route picker needs the player reference to offer AirPlay.
+    var routePickerPlayer: AVPlayer { player }
     private var originalQueue: [Track] = []
     private var timeObserver: Any?
     private var isSeeking = false
