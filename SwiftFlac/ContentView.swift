@@ -291,15 +291,14 @@ struct ContentView: View {
             #endif
             path.append(destination)
         }
-        // Pick up where the last session left off, paused, once the first
-        // scan has produced tracks to match the saved session against;
-        // then walk the navigation back to the last visited screen.
-        .onChange(of: library.isScanning) { _, scanning in
-            if !scanning {
-                player.libraryRootPath = library.rootURL?.path
-                player.restoreSession(from: library.playlists.flatMap(\.tracks))
-                restoreNavigationIfNeeded()
-            }
+        // Pick up where the last session left off, paused, as soon as any
+        // content is available - the launch-time cache makes this nearly
+        // instant; a fresh scan (first launch) arrives seconds later.
+        .onChange(of: library.contentVersion) {
+            attemptRestore()
+        }
+        .onAppear {
+            attemptRestore()
         }
         .preferredColorScheme(Appearance(rawValue: appearanceRaw)?.colorScheme)
         .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
@@ -359,6 +358,13 @@ struct ContentView: View {
         }
     }
 
+    private func attemptRestore() {
+        guard !library.playlists.isEmpty else { return }
+        player.libraryRootPath = library.rootURL?.path
+        player.restoreSession(from: library.playlists.flatMap(\.tracks))
+        restoreNavigationIfNeeded()
+    }
+
     /// Rebuilds the last visited screen from persisted tokens, truncating
     /// at the first one the rescanned library can no longer resolve.
     private func restoreNavigationIfNeeded() {
@@ -394,24 +400,36 @@ struct ContentView: View {
         savedPaths[savedMode] = []
         mode = savedMode
         guard !restoredPath.isEmpty || !restoredForward.isEmpty else { return }
-        // NavigationStack drops path mutations made mid-transition, so the
-        // stack is walked back one screen at a time with animations off:
-        // no transitions means nothing to drop, and no visible walkthrough.
-        // Any screen that still fails to land joins the forward stack, so
-        // the full chain stays reachable by swiping forward.
+        // The whole path lands in a single animation-free assignment:
+        // consecutive mutations corrupt NavigationStack even without
+        // animations, but one atomic write materializes cleanly. If the
+        // stack still truncates it, the missing tail joins the forward
+        // stack, so the full chain stays reachable by swiping forward.
         Task { @MainActor in
-            for (index, destination) in restoredPath.enumerated() {
-                try? await Task.sleep(for: .milliseconds(index == 0 ? 150 : 250))
-                guard mode == savedMode else { return }
-                guard path.count == index else { break }
+            // Path writes made before the app is active (device launches
+            // are slower than the simulator's) are discarded outright, so
+            // wait for activity first, then retry the atomic assignment
+            // until the stack stops writing truncations back. Checked via
+            // UIApplication because an @Environment scenePhase captured in
+            // this closure would never update.
+            for _ in 0..<50 where UIApplication.shared.applicationState != .active {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            for attempt in 0..<5 {
+                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 200 : 600))
+                guard mode == savedMode,
+                      path == Array(restoredPath.prefix(path.count)) else {
+                    return
+                }
+                guard path.count < restoredPath.count else { break }
                 isRestoringPath = true
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    path.append(destination)
+                    path = restoredPath
                 }
             }
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(500))
             guard mode == savedMode else { return }
             var forward = restoredForward
             if path.count < restoredPath.count {
