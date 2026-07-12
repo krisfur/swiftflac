@@ -27,6 +27,8 @@ final class PlayerController {
     private var originalQueue: [Track] = []
     private var timeObserver: Any?
     private var isSeeking = false
+    private var statusObservation: NSKeyValueObservation?
+    private var consecutiveFailures = 0
 
     private static let shuffleKey = "playerShuffle"
     private static let repeatKey = "playerRepeatMode"
@@ -67,6 +69,18 @@ final class PlayerController {
                       let item = notification.object as? AVPlayerItem,
                       item === self.player.currentItem else { return }
                 self.trackFinished()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                guard let self,
+                      let item = notification.object as? AVPlayerItem,
+                      item === self.player.currentItem else { return }
+                self.currentTrackFailed()
             }
         }
     }
@@ -177,6 +191,20 @@ final class PlayerController {
         startCurrentTrack()
     }
 
+    /// A track that cannot play behaves like one that ended, except it is
+    /// never retried (repeat-one would loop on it forever), and a queue
+    /// where every track fails stops instead of skip-looping.
+    private func currentTrackFailed() {
+        consecutiveFailures += 1
+        guard consecutiveFailures < max(queue.count, 1) else {
+            player.pause()
+            isPlaying = false
+            updateNowPlayingInfo()
+            return
+        }
+        advance(by: 1)
+    }
+
     private func trackFinished() {
         if repeatMode == .one {
             player.seek(to: .zero)
@@ -195,6 +223,20 @@ final class PlayerController {
         // duration of compressed audio, so tracks outrun their slider.
         let asset = AVURLAsset(url: track.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let item = AVPlayerItem(asset: asset)
+        statusObservation = item.observe(\.status) { [weak self] item, _ in
+            let status = item.status
+            Task { @MainActor in
+                guard let self, item === self.player.currentItem else { return }
+                switch status {
+                case .failed:
+                    self.currentTrackFailed()
+                case .readyToPlay:
+                    self.consecutiveFailures = 0
+                default:
+                    break
+                }
+            }
+        }
         player.replaceCurrentItem(with: item)
         player.play()
         isPlaying = true
