@@ -153,7 +153,15 @@ private enum LibraryScanner {
             } else {
                 tags = await loadMetadata(from: url, includeArtwork: false)
             }
-            tracks.append(Track(url: url, title: tags.title, artist: tags.artist, album: tags.album, albumArtist: tags.albumArtist))
+            tracks.append(Track(
+                url: url,
+                title: tags.title,
+                artist: tags.artist,
+                album: tags.album,
+                albumArtist: tags.albumArtist,
+                trackNumber: tags.trackNumber,
+                discNumber: tags.discNumber
+            ))
         }
         return tracks
     }
@@ -166,8 +174,13 @@ private enum LibraryScanner {
             let artists = Set(group.compactMap(\.artist))
             let artist = group[0].albumArtist
                 ?? (artists.count == 1 ? artists.first : (artists.isEmpty ? nil : "Various Artists"))
-            let sorted = group.sorted {
-                $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
+            // Disc then track number, falling back to filename order for
+            // untagged files.
+            let sorted = group.sorted { lhs, rhs in
+                let left = (lhs.discNumber ?? 1, lhs.trackNumber ?? Int.max)
+                let right = (rhs.discNumber ?? 1, rhs.trackNumber ?? Int.max)
+                if left != right { return left < right }
+                return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
             }
             return Album(name: group[0].album ?? "Unknown Album", artist: artist, tracks: sorted)
         }

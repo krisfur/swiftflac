@@ -60,9 +60,16 @@ enum FlacMetadata {
             case "ARTIST": metadata.artist = metadata.artist ?? value
             case "ALBUM": metadata.album = metadata.album ?? value
             case "ALBUMARTIST": metadata.albumArtist = metadata.albumArtist ?? value
+            case "TRACKNUMBER": metadata.trackNumber = metadata.trackNumber ?? leadingNumber(value)
+            case "DISCNUMBER": metadata.discNumber = metadata.discNumber ?? leadingNumber(value)
             default: break
             }
         }
+    }
+
+    /// Parses the leading integer of values like "3" or "3/12".
+    private static func leadingNumber(_ value: String) -> Int? {
+        value.split(separator: "/").first.flatMap { Int($0) }
     }
 
     private static func parsePicture(_ block: Data) -> (type: UInt32, data: Data)? {
