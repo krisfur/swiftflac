@@ -49,7 +49,7 @@ final class MusicLibrary {
         }
         isScanning = true
         Task.detached(priority: .userInitiated) {
-            let content = LibraryScanner.scan(root: rootURL)
+            let content = await LibraryScanner.scan(root: rootURL)
             await MainActor.run {
                 guard generation == self.scanGeneration else { return }
                 self.apply(content)
@@ -90,9 +90,9 @@ final class MusicLibrary {
 /// Filesystem walking and tag grouping, kept off the main actor since it
 /// reads the header of every audio file in the library.
 private enum LibraryScanner {
-    private static let audioExtensions: Set<String> = ["flac"]
+    private static let audioExtensions: Set<String> = ["flac", "mp3", "m4a", "aac", "wav", "aiff", "aif"]
 
-    static func scan(root: URL) -> LibraryContent {
+    static func scan(root: URL) async -> LibraryContent {
         let fm = FileManager.default
         let contents = (try? fm.contentsOfDirectory(
             at: root,
@@ -103,7 +103,7 @@ private enum LibraryScanner {
         var playlists: [Playlist] = []
 
         // Loose tracks sitting directly in the root form their own playlist.
-        let looseTracks = tracks(from: contents.filter(isAudioFile))
+        let looseTracks = await tracks(from: contents.filter(isAudioFile))
         if !looseTracks.isEmpty {
             playlists.append(Playlist(name: root.lastPathComponent, folderURL: root, tracks: looseTracks))
         }
@@ -112,7 +112,7 @@ private enum LibraryScanner {
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         for folder in folders {
-            let folderTracks = tracks(from: audioFiles(under: folder))
+            let folderTracks = await tracks(from: audioFiles(under: folder))
             if !folderTracks.isEmpty {
                 playlists.append(Playlist(name: folder.lastPathComponent, folderURL: folder, tracks: folderTracks))
             }
@@ -139,13 +139,23 @@ private enum LibraryScanner {
         return files
     }
 
-    private static func tracks(from urls: [URL]) -> [Track] {
-        urls
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-            .map { url in
-                let tags = FlacMetadata.read(from: url, readArtwork: false)
-                return Track(url: url, title: tags.title, artist: tags.artist, album: tags.album, albumArtist: tags.albumArtist)
+    private static func tracks(from urls: [URL]) async -> [Track] {
+        let sorted = urls.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
+        var tracks: [Track] = []
+        for url in sorted {
+            // FLAC gets the fast header parser; other formats go through
+            // AVFoundation, which understands their ID3/iTunes tags.
+            let tags: TrackMetadata
+            if url.pathExtension.lowercased() == "flac" {
+                tags = FlacMetadata.read(from: url, readArtwork: false)
+            } else {
+                tags = await loadMetadata(from: url, includeArtwork: false)
             }
+            tracks.append(Track(url: url, title: tags.title, artist: tags.artist, album: tags.album, albumArtist: tags.albumArtist))
+        }
+        return tracks
     }
 
     private static func albums(from tracks: [Track]) -> [Album] {
