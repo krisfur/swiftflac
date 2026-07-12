@@ -142,6 +142,9 @@ struct ContentView: View {
     @State private var forwardStack: [LibraryDestination] = []
     @State private var isRestoringPath = false
     @State private var lastForwardPush = Date.distantPast
+    // Set by the navigation gestures so their mode changes keep the forward
+    // history; picking a category by hand clears it.
+    @State private var preserveForwardStack = false
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
@@ -170,6 +173,7 @@ struct ContentView: View {
                     .onEnded { value in
                         if value.translation.width < -70, abs(value.translation.height) < 50,
                            let forwardMode {
+                            preserveForwardStack = true
                             mode = forwardMode
                         }
                     }
@@ -204,6 +208,7 @@ struct ContentView: View {
                         if value.translation.width > 70, path.isEmpty,
                            horizontalSizeClass == .compact {
                             forwardMode = mode
+                            preserveForwardStack = true
                             mode = nil
                         }
                     }
@@ -213,7 +218,9 @@ struct ContentView: View {
         #if os(iOS)
         .background(
             ForwardSwipeInstaller(
-                isEnabled: { !forwardStack.isEmpty && path.last != .nowPlaying },
+                // mode == nil means the Library list is showing, where its
+                // own gesture handles the forward swipe.
+                isEnabled: { mode != nil && !forwardStack.isEmpty && path.last != .nowPlaying },
                 onForward: goForward
             )
         )
@@ -224,7 +231,11 @@ struct ContentView: View {
             #endif
             if let oldMode { savedPaths[oldMode] = path }
             let restored = newMode.flatMap { savedPaths[$0] } ?? []
-            forwardStack = []
+            if preserveForwardStack {
+                preserveForwardStack = false
+            } else {
+                forwardStack = []
+            }
             if restored != path {
                 isRestoringPath = true
                 path = restored
