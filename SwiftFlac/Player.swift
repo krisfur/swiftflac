@@ -41,6 +41,15 @@ final class PlayerController {
     private var hasRestoredSession = false
     private var lastSessionSave = Date.distantPast
 
+    /// Set before session restore; sessions persist root-relative paths
+    /// because the app's container path changes across updates.
+    var libraryRootPath: String?
+
+    private func sessionKey(for url: URL) -> String {
+        guard let root = libraryRootPath, url.path.hasPrefix(root) else { return url.path }
+        return String(url.path.dropFirst(root.count))
+    }
+
     var currentTrack: Track? {
         guard let currentIndex, queue.indices.contains(currentIndex) else { return nil }
         return queue[currentIndex]
@@ -256,7 +265,7 @@ final class PlayerController {
         let savedQueuePaths = UserDefaults.standard.stringArray(forKey: Self.sessionQueueKey) ?? []
         let savedTime = UserDefaults.standard.double(forKey: Self.sessionTimeKey)
 
-        let byPath = Dictionary(tracks.map { ($0.url.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let byPath = Dictionary(tracks.map { (sessionKey(for: $0.url), $0) }, uniquingKeysWith: { first, _ in first })
         let restoredQueue = savedQueuePaths.compactMap { byPath[$0] }
         guard let track = byPath[savedTrackPath],
               let index = restoredQueue.firstIndex(of: track) else { return }
@@ -271,8 +280,8 @@ final class PlayerController {
         guard let track = currentTrack else { return }
         lastSessionSave = Date()
         let defaults = UserDefaults.standard
-        defaults.set(queue.map { $0.url.path }, forKey: Self.sessionQueueKey)
-        defaults.set(track.url.path, forKey: Self.sessionTrackKey)
+        defaults.set(queue.map { sessionKey(for: $0.url) }, forKey: Self.sessionQueueKey)
+        defaults.set(sessionKey(for: track.url), forKey: Self.sessionTrackKey)
         defaults.set(currentTime, forKey: Self.sessionTimeKey)
     }
 

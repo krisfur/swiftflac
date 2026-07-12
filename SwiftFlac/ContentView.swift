@@ -145,6 +145,10 @@ struct ContentView: View {
     // Set by the navigation gestures so their mode changes keep the forward
     // history; picking a category by hand clears it.
     @State private var preserveForwardStack = false
+    @State private var hasRestoredNavigation = false
+
+    private static let navModeKey = "navMode"
+    private static let navPathKey = "navPath"
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
@@ -240,6 +244,7 @@ struct ContentView: View {
                 isRestoringPath = true
                 path = restored
             }
+            saveNavigation()
         }
         .onChange(of: path) { oldPath, newPath in
             if isRestoringPath {
@@ -251,6 +256,7 @@ struct ContentView: View {
             } else if newPath.count > oldPath.count {
                 forwardStack = []
             }
+            saveNavigation()
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if player.currentTrack != nil, path.last != .nowPlaying {
@@ -283,10 +289,13 @@ struct ContentView: View {
             path.append(destination)
         }
         // Pick up where the last session left off, paused, once the first
-        // scan has produced tracks to match the saved session against.
+        // scan has produced tracks to match the saved session against;
+        // then walk the navigation back to the last visited screen.
         .onChange(of: library.isScanning) { _, scanning in
             if !scanning {
+                player.libraryRootPath = library.rootURL?.path
                 player.restoreSession(from: library.playlists.flatMap(\.tracks))
+                restoreNavigationIfNeeded()
             }
         }
         .preferredColorScheme(Appearance(rawValue: appearanceRaw)?.colorScheme)
@@ -295,6 +304,87 @@ struct ContentView: View {
                 library.setRootFolder(url)
             }
         }
+    }
+
+    /// Paths persist relative to the library root: the app's container
+    /// path (and any absolute path in it) changes across app updates.
+    private func rootRelativePath(_ url: URL) -> String {
+        guard let root = library.rootURL?.path, url.path.hasPrefix(root) else { return url.path }
+        return String(url.path.dropFirst(root.count))
+    }
+
+    private func persistenceToken(for destination: LibraryDestination) -> String {
+        switch destination {
+        case .playlist(let playlist): "playlist|\(rootRelativePath(playlist.folderURL))"
+        case .album(let album): "album|\(album.id)"
+        case .artist(let artist): "artist|\(artist.name)"
+        case .nowPlaying: "nowPlaying"
+        }
+    }
+
+    private func saveNavigation() {
+        let defaults = UserDefaults.standard
+        defaults.set(mode?.rawValue, forKey: Self.navModeKey)
+        defaults.set(path.map(persistenceToken(for:)), forKey: Self.navPathKey)
+    }
+
+    private func resolveDestination(_ token: String) -> LibraryDestination? {
+        let parts = token.split(separator: "|", maxSplits: 1)
+        guard let kind = parts.first else { return nil }
+        let value = parts.count > 1 ? String(parts[1]) : ""
+        switch kind {
+        case "playlist":
+            return library.playlists.first { rootRelativePath($0.folderURL) == value }.map(LibraryDestination.playlist)
+        case "album":
+            return library.albums.first { $0.id == value }.map(LibraryDestination.album)
+        case "artist":
+            return library.artists.first { $0.name == value }.map(LibraryDestination.artist)
+        case "nowPlaying":
+            return .nowPlaying
+        default:
+            return nil
+        }
+    }
+
+    /// Rebuilds the last visited screen from persisted tokens, truncating
+    /// at the first one the rescanned library can no longer resolve.
+    private func restoreNavigationIfNeeded() {
+        #if os(iOS)
+        guard !hasRestoredNavigation else { return }
+        hasRestoredNavigation = true
+        let defaults = UserDefaults.standard
+        guard let modeRaw = defaults.string(forKey: Self.navModeKey),
+              let savedMode = BrowseMode(rawValue: modeRaw) else { return }
+
+        var restoredPath: [LibraryDestination] = []
+        for token in defaults.stringArray(forKey: Self.navPathKey) ?? [] {
+            guard let destination = resolveDestination(token) else {
+                break
+            }
+            restoredPath.append(destination)
+        }
+        // Never land on an empty player.
+        if restoredPath.last == .nowPlaying, player.currentTrack == nil {
+            restoredPath.removeLast()
+        }
+        if restoredPath.last == .nowPlaying {
+            playbackOrigin = (savedMode, Array(restoredPath.dropLast()))
+        }
+        savedPaths[savedMode] = []
+        mode = savedMode
+        guard !restoredPath.isEmpty else { return }
+        // NavigationStack drops all but the first of simultaneously
+        // assigned pushes, so walk the stack back one screen per
+        // transition, bailing out if the user starts navigating.
+        Task { @MainActor in
+            for (index, destination) in restoredPath.enumerated() {
+                try? await Task.sleep(for: .milliseconds(650))
+                guard path.count == index, mode == savedMode else { return }
+                isRestoringPath = true
+                path.append(destination)
+            }
+        }
+        #endif
     }
 
     private func goForward() {
