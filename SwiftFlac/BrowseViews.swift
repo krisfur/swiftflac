@@ -1,77 +1,161 @@
 import SwiftUI
 
-struct FoldersView: View {
-    @Environment(MusicLibrary.self) private var library
+/// Fixed search field that sits between the navigation title and the
+/// content, so nothing can overlap or hide it.
+struct SearchField: View {
+    @Binding var text: String
+    var prompt: String
 
     var body: some View {
-        List(library.playlists) { playlist in
-            NavigationLink(value: LibraryDestination.playlist(playlist)) {
-                Label {
-                    VStack(alignment: .leading) {
-                        Text(playlist.name)
-                        Text("\(playlist.tracks.count) tracks")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "folder.fill")
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                #if os(iOS)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                #endif
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
             }
         }
-        .scrollContentBackground(.hidden)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal)
+        .padding(.bottom, 6)
+        #if os(macOS)
+        // Breathing room below the window toolbar.
+        .padding(.top, 10)
+        #endif
+    }
+}
+
+struct FoldersView: View {
+    @Environment(MusicLibrary.self) private var library
+    @State private var searchText = ""
+
+    private var filteredPlaylists: [Playlist] {
+        guard !searchText.isEmpty else { return library.playlists }
+        return library.playlists.filter { $0.name.localizedStandardContains(searchText) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SearchField(text: $searchText, prompt: "Folder")
+            List(filteredPlaylists) { playlist in
+                NavigationLink(value: LibraryDestination.playlist(playlist)) {
+                    Label {
+                        VStack(alignment: .leading) {
+                            Text(playlist.name)
+                            Text("\(playlist.tracks.count) tracks")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "folder.fill")
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .overlay {
+                if filteredPlaylists.isEmpty, !searchText.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            .miniBarClearance()
+        }
         .background(AppBackground())
         .navigationTitle("Folders")
-        .miniBarClearance()
         .optionsToolbar()
     }
 }
 
 struct ArtistsView: View {
     @Environment(MusicLibrary.self) private var library
+    @State private var searchText = ""
+
+    private var filteredArtists: [Artist] {
+        guard !searchText.isEmpty else { return library.artists }
+        return library.artists.filter { $0.name.localizedStandardContains(searchText) }
+    }
 
     var body: some View {
-        List(library.artists) { artist in
-            NavigationLink(value: LibraryDestination.artist(artist)) {
-                Label {
-                    VStack(alignment: .leading) {
-                        Text(artist.name)
-                        Text("\(artist.tracks.count) tracks")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            SearchField(text: $searchText, prompt: "Artist")
+            List(filteredArtists) { artist in
+                NavigationLink(value: LibraryDestination.artist(artist)) {
+                    Label {
+                        VStack(alignment: .leading) {
+                            Text(artist.name)
+                            Text("\(artist.tracks.count) tracks")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "music.mic")
                     }
-                } icon: {
-                    Image(systemName: "music.mic")
                 }
             }
+            .scrollContentBackground(.hidden)
+            .overlay {
+                if filteredArtists.isEmpty, !searchText.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            .miniBarClearance()
         }
-        .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle("Artists")
-        .miniBarClearance()
         .optionsToolbar()
     }
 }
 
 struct AlbumsView: View {
     @Environment(MusicLibrary.self) private var library
+    @State private var searchText = ""
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 16)]
 
+    // Album names first; if nothing matches, fall back to the artist so
+    // an artist's name pulls up their albums.
+    private var filteredAlbums: [Album] {
+        guard !searchText.isEmpty else { return library.albums }
+        let byName = library.albums.filter { $0.name.localizedStandardContains(searchText) }
+        if !byName.isEmpty { return byName }
+        return library.albums.filter { $0.artist?.localizedStandardContains(searchText) == true }
+    }
+
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(library.albums) { album in
-                    NavigationLink(value: LibraryDestination.album(album)) {
-                        AlbumCell(album: album)
+        VStack(spacing: 0) {
+            SearchField(text: $searchText, prompt: "Album or Artist")
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(filteredAlbums) { album in
+                        NavigationLink(value: LibraryDestination.album(album)) {
+                            AlbumCell(album: album)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                }
+                .padding()
+            }
+            .overlay {
+                if filteredAlbums.isEmpty, !searchText.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
                 }
             }
-            .padding()
+            .miniBarClearance()
         }
         .background(AppBackground())
         .navigationTitle("Albums")
-        .miniBarClearance()
         .optionsToolbar()
     }
 }

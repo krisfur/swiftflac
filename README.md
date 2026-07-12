@@ -25,13 +25,14 @@ Folders are playlists: point it at a music folder and each subfolder becomes a p
 |---|---|
 | ![](screenshots/mac-albums-light.png) | ![](screenshots/mac-albums-dark.png) |
 | ![](screenshots/mac-details-light.png) | ![](screenshots/mac-details-dark.png) |
+| ![](screenshots/mac-search-light.png) | ![](screenshots/mac-search-dark.png) |
 
 ### iOS
 
-| | | | |
-|---|---|---|---|
-| ![](screenshots/ios-start-light.png) | ![](screenshots/ios-list-light.png) | ![](screenshots/ios-albums-light.png) | ![](screenshots/ios-details-light.png) |
-| ![](screenshots/ios-start-dark.png) | ![](screenshots/ios-list-dark.png) | ![](screenshots/ios-albums-dark.png) | ![](screenshots/ios-details-dark.png) |
+| | | | | |
+|---|---|---|---|---|
+| ![](screenshots/ios-start-light.png) | ![](screenshots/ios-list-light.png) | ![](screenshots/ios-albums-light.png) | ![](screenshots/ios-details-light.png) | ![](screenshots/ios-search-light.png) |
+| ![](screenshots/ios-start-dark.png) | ![](screenshots/ios-list-dark.png) | ![](screenshots/ios-albums-dark.png) | ![](screenshots/ios-details-dark.png) | ![](screenshots/ios-search-dark.png) |
 
 ## Building
 
