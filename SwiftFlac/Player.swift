@@ -135,6 +135,14 @@ final class PlayerController {
 
     func seek(to time: TimeInterval) {
         guard player.currentItem != nil else { return }
+        // Scrubbing into the last second means "done with this song": jump
+        // straight to the end-of-track behaviour instead of making the
+        // decoder grind to the tail (slow for FLAC, and landing exactly on
+        // the end can stall without firing the finished notification).
+        if duration > 0, time >= duration - 1 {
+            trackFinished()
+            return
+        }
         let target = min(max(0, time), max(duration - 0.1, 0))
         // Freeze observer updates until the async seek lands, otherwise the
         // slider briefly snaps back to the pre-seek position.

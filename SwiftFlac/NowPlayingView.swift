@@ -141,7 +141,7 @@ struct ToggleIcon: View {
 
 struct NowPlayingView: View {
     @Environment(PlayerController.self) private var player
-    @State private var scrubTime: Double?
+    @State private var dragFraction: Double?
 
     var body: some View {
         GeometryReader { geo in
@@ -205,22 +205,22 @@ struct NowPlayingView: View {
         .padding(.horizontal)
     }
 
+    // Custom scrubber instead of Slider: the iOS 26 system slider opens
+    // phantom editing sessions and echoes stale values through its binding
+    // around track changes, which repeatedly froze this view.
     private var scrubber: some View {
-        VStack(spacing: 4) {
-            Slider(
-                value: Binding(
-                    get: { scrubTime ?? player.currentTime },
-                    set: { scrubTime = $0 }
-                ),
-                in: 0...max(player.duration, 1)
-            ) { editing in
-                if !editing {
-                    if let scrubTime { player.seek(to: scrubTime) }
-                    scrubTime = nil
+        let playbackFraction = player.duration > 0 ? player.currentTime / player.duration : 0
+        return VStack(spacing: 4) {
+            ScrubberBar(fraction: dragFraction ?? playbackFraction) { fraction, ended in
+                if ended {
+                    dragFraction = nil
+                    player.seek(to: fraction * player.duration)
+                } else {
+                    dragFraction = fraction
                 }
             }
             HStack {
-                Text(formatted(scrubTime ?? player.currentTime))
+                Text(formatted((dragFraction ?? playbackFraction) * player.duration))
                 Spacer()
                 Text(formatted(player.duration))
             }
@@ -265,6 +265,38 @@ struct NowPlayingView: View {
 
     private func formatted(_ time: TimeInterval) -> String {
         Duration.seconds(time).formatted(.time(pattern: .minuteSecond))
+    }
+}
+
+/// A capsule progress bar with drag-to-seek. `onScrub` is called with the
+/// dragged fraction and whether the touch has ended.
+struct ScrubberBar: View {
+    let fraction: Double
+    let onScrub: (Double, Bool) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.quaternary)
+                Capsule()
+                    .fill(Color.accentColor)
+                    .frame(width: max(geo.size.width * min(max(fraction, 0), 1), 8))
+            }
+            .frame(height: 8)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        onScrub(min(max(value.location.x / geo.size.width, 0), 1), false)
+                    }
+                    .onEnded { value in
+                        onScrub(min(max(value.location.x / geo.size.width, 0), 1), true)
+                    }
+            )
+        }
+        .frame(height: 28)
     }
 }
 
