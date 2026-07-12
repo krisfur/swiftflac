@@ -44,8 +44,12 @@ struct TrackMetadata: Equatable {
 }
 
 func loadMetadata(for track: Track) async -> TrackMetadata {
+    await loadMetadata(from: track.url, includeArtwork: true)
+}
+
+func loadMetadata(from url: URL, includeArtwork: Bool) async -> TrackMetadata {
     var metadata = TrackMetadata()
-    let asset = AVURLAsset(url: track.url)
+    let asset = AVURLAsset(url: url)
     if let items = try? await asset.load(.commonMetadata) {
         for item in items {
             switch item.commonKey {
@@ -56,14 +60,26 @@ func loadMetadata(for track: Track) async -> TrackMetadata {
             case .commonKeyAlbumName:
                 metadata.album = try? await item.load(.stringValue)
             case .commonKeyArtwork:
-                metadata.artworkData = try? await item.load(.dataValue)
+                if includeArtwork {
+                    metadata.artworkData = try? await item.load(.dataValue)
+                }
             default:
                 break
             }
         }
     }
-    if track.url.pathExtension.lowercased() == "flac" {
-        let flac = FlacMetadata.read(from: track.url)
+    // Album artist is not a "common" key; check the iTunes and ID3 tags.
+    if let items = try? await asset.load(.metadata) {
+        for identifier in [AVMetadataIdentifier.iTunesMetadataAlbumArtist, .id3MetadataBand] {
+            if let item = AVMetadataItem.metadataItems(from: items, filteredByIdentifier: identifier).first,
+               let value = try? await item.load(.stringValue) {
+                metadata.albumArtist = value
+                break
+            }
+        }
+    }
+    if url.pathExtension.lowercased() == "flac" {
+        let flac = FlacMetadata.read(from: url, readArtwork: includeArtwork)
         metadata.title = metadata.title ?? flac.title
         metadata.artist = metadata.artist ?? flac.artist
         metadata.album = metadata.album ?? flac.album

@@ -127,7 +127,7 @@ final class ArtworkStore {
         if let cached = cache[url] { return cached }
         if misses.contains(url) { return nil }
         let data = await Task.detached(priority: .utility) {
-            FlacMetadata.read(from: url).artworkData
+            await loadMetadata(from: url, includeArtwork: true).artworkData
         }.value
         if let data {
             cache[url] = data
