@@ -380,13 +380,18 @@ struct ContentView: View {
             guard let destination = resolveDestination(token) else { break }
             restoredPath.append(destination)
         }
-        // Never land on (or forward-navigate to) an empty player.
-        if restoredPath.last == .nowPlaying, player.currentTrack == nil {
-            restoredPath.removeLast()
-        }
-        let restoredForward = (defaults.stringArray(forKey: Self.navForwardKey) ?? [])
+        var restoredForward = (defaults.stringArray(forKey: Self.navForwardKey) ?? [])
             .compactMap(resolveDestination)
             .filter { $0 != .nowPlaying || player.currentTrack != nil }
+        // Launch-time pushes of the now-playing screen are unreliable on
+        // device, so it is never auto-pushed: it moves to the top of the
+        // forward stack instead, one bar tap or forward swipe away.
+        if restoredPath.last == .nowPlaying {
+            restoredPath.removeLast()
+            if player.currentTrack != nil {
+                restoredForward.append(.nowPlaying)
+            }
+        }
         if player.currentTrack != nil,
            let originModeRaw = defaults.string(forKey: Self.navOriginModeKey) {
             var originPath: [LibraryDestination] = []
@@ -415,8 +420,11 @@ struct ContentView: View {
             for _ in 0..<50 where UIApplication.shared.applicationState != .active {
                 try? await Task.sleep(for: .milliseconds(100))
             }
-            for attempt in 0..<5 {
-                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 200 : 600))
+            // The whole (player-free) path lands in one animation-free
+            // assignment - instant, and the only launch-time mutation the
+            // device has proven reliable. One spare retry just in case.
+            for attempt in 0..<2 {
+                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 150 : 600))
                 guard mode == savedMode,
                       path == Array(restoredPath.prefix(path.count)) else {
                     return
@@ -429,7 +437,7 @@ struct ContentView: View {
                     path = restoredPath
                 }
             }
-            try? await Task.sleep(for: .milliseconds(500))
+            try? await Task.sleep(for: .milliseconds(400))
             guard mode == savedMode else { return }
             var forward = restoredForward
             if path.count < restoredPath.count {
