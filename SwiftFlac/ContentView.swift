@@ -64,6 +64,7 @@ struct ContentView: View {
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var forwardMode: BrowseMode?
+    @State private var debugGesture = ""  // DEBUG: remove.
     // Where the current song was played from, so the now-playing screen
     // can always swipe back to that list.
     @State private var playbackOrigin: (mode: BrowseMode?, path: [LibraryDestination])?
@@ -116,6 +117,7 @@ struct ContentView: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 25)
                     .onEnded { value in
+                        debugGesture = "end w=\(Int(value.translation.width)) h=\(Int(value.translation.height))"
                         guard abs(value.translation.height) < 50 else { return }
                         if value.translation.width < -70 {
                             goForward()
@@ -126,6 +128,15 @@ struct ContentView: View {
                         }
                     }
             )
+            // DEBUG: remove.
+            .overlay(alignment: .bottomLeading) {
+                Text("fwd=\(forwardStack.count) path=\(path.count) \(debugGesture)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.red)
+                    .padding(.bottom, 70)
+                    .padding(.leading, 8)
+                    .allowsHitTesting(false)
+            }
             #endif
         }
         .onChange(of: mode) { oldMode, newMode in

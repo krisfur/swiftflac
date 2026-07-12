@@ -213,22 +213,32 @@ struct NowPlayingView: View {
         let side = landscape
             ? min(size.height - 64, size.width * 0.45, 320)
             : min(size.width - 64, size.height - 280, 320)
-        return ArtworkView(data: player.nowPlaying.artworkData, size: max(side, 120), cornerRadius: 12)
-            .shadow(radius: 10)
+        return Menu {
+            goToMenuItems
+        } label: {
+            ArtworkView(data: player.nowPlaying.artworkData, size: max(side, 120), cornerRadius: 12)
+                .shadow(radius: 10)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var goToMenuItems: some View {
+        if let album = currentAlbum {
+            Button("Go to Album", systemImage: "square.stack") {
+                libraryNavigate(.album(album))
+            }
+        }
+        if let artist = currentArtist {
+            Button("Go to Artist", systemImage: "music.mic") {
+                libraryNavigate(.artist(artist))
+            }
+        }
     }
 
     private var info: some View {
         Menu {
-            if let album = currentAlbum {
-                Button("Go to Album", systemImage: "square.stack") {
-                    libraryNavigate(.album(album))
-                }
-            }
-            if let artist = currentArtist {
-                Button("Go to Artist", systemImage: "music.mic") {
-                    libraryNavigate(.artist(artist))
-                }
-            }
+            goToMenuItems
         } label: {
             VStack(spacing: 4) {
                 Text(player.displayTitle)
