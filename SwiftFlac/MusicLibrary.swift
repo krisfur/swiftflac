@@ -8,6 +8,53 @@ struct LibraryContent {
     var allTracks: [Track] = []
 }
 
+/// Snapshot of the scanned playlists, persisted with root-relative paths
+/// so launches can show the library (and restore the session) instantly
+/// while the real scan refreshes in the background.
+private struct LibraryCache: Codable {
+    struct CachedTrack: Codable {
+        var relativePath: String
+        var title: String?
+        var artist: String?
+        var album: String?
+        var albumArtist: String?
+        var trackNumber: Int?
+        var discNumber: Int?
+
+        init(track: Track, rootPath: String) {
+            relativePath = track.url.path.hasPrefix(rootPath)
+                ? String(track.url.path.dropFirst(rootPath.count))
+                : track.url.path
+            title = track.title
+            artist = track.artist
+            album = track.album
+            albumArtist = track.albumArtist
+            trackNumber = track.trackNumber
+            discNumber = track.discNumber
+        }
+
+        func track(root: URL) -> Track {
+            Track(
+                url: URL(fileURLWithPath: root.path + relativePath),
+                title: title,
+                artist: artist,
+                album: album,
+                albumArtist: albumArtist,
+                trackNumber: trackNumber,
+                discNumber: discNumber
+            )
+        }
+    }
+
+    struct CachedPlaylist: Codable {
+        var name: String
+        var relativeFolder: String
+        var tracks: [CachedTrack]
+    }
+
+    var playlists: [CachedPlaylist]
+}
+
 @MainActor
 @Observable
 final class MusicLibrary {
@@ -17,13 +64,21 @@ final class MusicLibrary {
     private(set) var allTracks: [Track] = []
     private(set) var isScanning = false
     private(set) var rootURL: URL?
+    /// Bumped whenever content lands (cache or scan) so restoration can react.
+    private(set) var contentVersion = 0
 
     private var scanGeneration = 0
 
     private static let bookmarkKey = "libraryFolderBookmark"
 
+    private nonisolated static var cacheURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("LibraryCache.json")
+    }
+
     init() {
         restoreRoot()
+        loadCache()
         rescan()
     }
 
@@ -58,11 +113,54 @@ final class MusicLibrary {
     }
 
     private func apply(_ content: LibraryContent) {
+        applyContent(content)
+        isScanning = false
+        saveCache(content.playlists)
+    }
+
+    private func applyContent(_ content: LibraryContent) {
         playlists = content.playlists
         albums = content.albums
         artists = content.artists
         allTracks = content.allTracks
-        isScanning = false
+        contentVersion += 1
+    }
+
+    private func loadCache() {
+        guard let rootURL,
+              let data = try? Data(contentsOf: Self.cacheURL),
+              let cache = try? JSONDecoder().decode(LibraryCache.self, from: data),
+              !cache.playlists.isEmpty else { return }
+        let cachedPlaylists = cache.playlists.map { cached in
+            Playlist(
+                name: cached.name,
+                folderURL: URL(fileURLWithPath: rootURL.path + cached.relativeFolder),
+                tracks: cached.tracks.map { $0.track(root: rootURL) }
+            )
+        }
+        applyContent(LibraryScanner.content(from: cachedPlaylists))
+    }
+
+    private func saveCache(_ playlists: [Playlist]) {
+        guard let rootURL else { return }
+        let rootPath = rootURL.path
+        let cache = LibraryCache(playlists: playlists.map { playlist in
+            LibraryCache.CachedPlaylist(
+                name: playlist.name,
+                relativeFolder: playlist.folderURL.path.hasPrefix(rootPath)
+                    ? String(playlist.folderURL.path.dropFirst(rootPath.count))
+                    : playlist.folderURL.path,
+                tracks: playlist.tracks.map { LibraryCache.CachedTrack(track: $0, rootPath: rootPath) }
+            )
+        })
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(cache) else { return }
+            try? FileManager.default.createDirectory(
+                at: Self.cacheURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? data.write(to: Self.cacheURL, options: .atomic)
+        }
     }
 
     private func restoreRoot() {
@@ -118,13 +216,19 @@ private enum LibraryScanner {
             }
         }
 
+        return content(from: playlists)
+    }
+
+    /// Builds the grouped views over a set of playlists; shared between a
+    /// fresh scan and the launch-time cache.
+    static func content(from playlists: [Playlist]) -> LibraryContent {
         let all = playlists.flatMap(\.tracks)
-        // Artist pages and All Tracks collapse copies of the same song
-        // living in different folders; folders and albums show every file.
+        // Albums, artist pages, and All Tracks collapse copies of the same
+        // song living in different folders; folders show every file.
         let unique = deduplicated(all)
         return LibraryContent(
             playlists: playlists,
-            albums: albums(from: all),
+            albums: albums(from: unique),
             artists: artists(from: unique),
             allTracks: unique.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
         )

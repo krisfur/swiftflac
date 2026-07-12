@@ -145,6 +145,13 @@ struct ContentView: View {
     // Set by the navigation gestures so their mode changes keep the forward
     // history; picking a category by hand clears it.
     @State private var preserveForwardStack = false
+    @State private var hasRestoredNavigation = false
+
+    private static let navModeKey = "navMode"
+    private static let navPathKey = "navPath"
+    private static let navForwardKey = "navForward"
+    private static let navOriginModeKey = "navOriginMode"
+    private static let navOriginPathKey = "navOriginPath"
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
@@ -240,6 +247,7 @@ struct ContentView: View {
                 isRestoringPath = true
                 path = restored
             }
+            saveNavigation()
         }
         .onChange(of: path) { oldPath, newPath in
             if isRestoringPath {
@@ -251,6 +259,7 @@ struct ContentView: View {
             } else if newPath.count > oldPath.count {
                 forwardStack = []
             }
+            saveNavigation()
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if player.currentTrack != nil, path.last != .nowPlaying {
@@ -282,12 +291,164 @@ struct ContentView: View {
             #endif
             path.append(destination)
         }
+        // Pick up where the last session left off, paused, as soon as any
+        // content is available - the launch-time cache makes this nearly
+        // instant; a fresh scan (first launch) arrives seconds later.
+        .onChange(of: library.contentVersion) {
+            attemptRestore()
+        }
+        .onAppear {
+            attemptRestore()
+        }
         .preferredColorScheme(Appearance(rawValue: appearanceRaw)?.colorScheme)
         .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
                 library.setRootFolder(url)
             }
         }
+    }
+
+    /// Paths persist relative to the library root: the app's container
+    /// path (and any absolute path in it) changes across app updates.
+    private func rootRelativePath(_ url: URL) -> String {
+        guard let root = library.rootURL?.path, url.path.hasPrefix(root) else { return url.path }
+        return String(url.path.dropFirst(root.count))
+    }
+
+    private func persistenceToken(for destination: LibraryDestination) -> String {
+        switch destination {
+        case .playlist(let playlist): "playlist|\(rootRelativePath(playlist.folderURL))"
+        case .album(let album): "album|\(album.id)"
+        case .artist(let artist): "artist|\(artist.name)"
+        case .nowPlaying: "nowPlaying"
+        }
+    }
+
+    private func saveNavigation() {
+        let defaults = UserDefaults.standard
+        defaults.set(mode?.rawValue, forKey: Self.navModeKey)
+        defaults.set(path.map(persistenceToken(for:)), forKey: Self.navPathKey)
+        defaults.set(forwardStack.map(persistenceToken(for:)), forKey: Self.navForwardKey)
+        #if os(iOS)
+        if let playbackOrigin {
+            defaults.set(playbackOrigin.mode?.rawValue, forKey: Self.navOriginModeKey)
+            defaults.set(playbackOrigin.path.map(persistenceToken(for:)), forKey: Self.navOriginPathKey)
+        } else {
+            defaults.removeObject(forKey: Self.navOriginModeKey)
+            defaults.removeObject(forKey: Self.navOriginPathKey)
+        }
+        #endif
+    }
+
+    private func resolveDestination(_ token: String) -> LibraryDestination? {
+        let parts = token.split(separator: "|", maxSplits: 1)
+        guard let kind = parts.first else { return nil }
+        let value = parts.count > 1 ? String(parts[1]) : ""
+        switch kind {
+        case "playlist":
+            return library.playlists.first { rootRelativePath($0.folderURL) == value }.map(LibraryDestination.playlist)
+        case "album":
+            return library.albums.first { $0.id == value }.map(LibraryDestination.album)
+        case "artist":
+            return library.artists.first { $0.name == value }.map(LibraryDestination.artist)
+        case "nowPlaying":
+            return .nowPlaying
+        default:
+            return nil
+        }
+    }
+
+    private func attemptRestore() {
+        guard !library.playlists.isEmpty else { return }
+        player.libraryRootPath = library.rootURL?.path
+        player.restoreSession(from: library.playlists.flatMap(\.tracks))
+        restoreNavigationIfNeeded()
+    }
+
+    /// Rebuilds the last visited screen from persisted tokens, truncating
+    /// at the first one the rescanned library can no longer resolve.
+    private func restoreNavigationIfNeeded() {
+        #if os(iOS)
+        guard !hasRestoredNavigation else { return }
+        hasRestoredNavigation = true
+        let defaults = UserDefaults.standard
+        guard let modeRaw = defaults.string(forKey: Self.navModeKey),
+              let savedMode = BrowseMode(rawValue: modeRaw) else { return }
+
+        var restoredPath: [LibraryDestination] = []
+        for token in defaults.stringArray(forKey: Self.navPathKey) ?? [] {
+            guard let destination = resolveDestination(token) else { break }
+            restoredPath.append(destination)
+        }
+        var restoredForward = (defaults.stringArray(forKey: Self.navForwardKey) ?? [])
+            .compactMap(resolveDestination)
+            .filter { $0 != .nowPlaying || player.currentTrack != nil }
+        // Launch-time pushes of the now-playing screen are unreliable on
+        // device, so it is never auto-pushed: it moves to the top of the
+        // forward stack instead, one bar tap or forward swipe away.
+        if restoredPath.last == .nowPlaying {
+            restoredPath.removeLast()
+            if player.currentTrack != nil {
+                restoredForward.append(.nowPlaying)
+            }
+        }
+        if player.currentTrack != nil,
+           let originModeRaw = defaults.string(forKey: Self.navOriginModeKey) {
+            var originPath: [LibraryDestination] = []
+            for token in defaults.stringArray(forKey: Self.navOriginPathKey) ?? [] {
+                guard let destination = resolveDestination(token) else { break }
+                originPath.append(destination)
+            }
+            playbackOrigin = (BrowseMode(rawValue: originModeRaw), originPath)
+        }
+
+        savedPaths[savedMode] = []
+        mode = savedMode
+        guard !restoredPath.isEmpty || !restoredForward.isEmpty else { return }
+        // The whole path lands in a single animation-free assignment:
+        // consecutive mutations corrupt NavigationStack even without
+        // animations, but one atomic write materializes cleanly. If the
+        // stack still truncates it, the missing tail joins the forward
+        // stack, so the full chain stays reachable by swiping forward.
+        Task { @MainActor in
+            // Path writes made before the app is active (device launches
+            // are slower than the simulator's) are discarded outright, so
+            // wait for activity first, then retry the atomic assignment
+            // until the stack stops writing truncations back. Checked via
+            // UIApplication because an @Environment scenePhase captured in
+            // this closure would never update.
+            for _ in 0..<50 where UIApplication.shared.applicationState != .active {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            // The whole (player-free) path lands in one animation-free
+            // assignment - instant, and the only launch-time mutation the
+            // device has proven reliable. One spare retry just in case.
+            for attempt in 0..<2 {
+                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 150 : 600))
+                guard mode == savedMode,
+                      path == Array(restoredPath.prefix(path.count)) else {
+                    return
+                }
+                guard path.count < restoredPath.count else { break }
+                isRestoringPath = true
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    path = restoredPath
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard mode == savedMode else { return }
+            var forward = restoredForward
+            if path.count < restoredPath.count {
+                forward.append(contentsOf: restoredPath[path.count...].reversed())
+            }
+            if !forward.isEmpty {
+                forwardStack = forward
+                saveNavigation()
+            }
+        }
+        #endif
     }
 
     private func goForward() {
@@ -306,6 +467,7 @@ struct ContentView: View {
     private func playFromList() {
         #if os(iOS)
         playbackOrigin = (mode, path)
+        saveNavigation()
         #endif
         openNowPlaying()
     }
