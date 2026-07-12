@@ -34,6 +34,12 @@ final class PlayerController {
 
     private static let shuffleKey = "playerShuffle"
     private static let repeatKey = "playerRepeatMode"
+    private static let sessionQueueKey = "sessionQueuePaths"
+    private static let sessionTrackKey = "sessionTrackPath"
+    private static let sessionTimeKey = "sessionTime"
+
+    private var hasRestoredSession = false
+    private var lastSessionSave = Date.distantPast
 
     var currentTrack: Track? {
         guard let currentIndex, queue.indices.contains(currentIndex) else { return nil }
@@ -75,6 +81,9 @@ final class PlayerController {
             MainActor.assumeIsolated {
                 guard let self, !self.isSeeking else { return }
                 self.currentTime = time.seconds
+                if Date().timeIntervalSince(self.lastSessionSave) > 5 {
+                    self.saveSession()
+                }
             }
         }
         NotificationCenter.default.addObserver(
@@ -150,6 +159,7 @@ final class PlayerController {
         }
         isPlaying.toggle()
         updateNowPlayingInfo()
+        saveSession()
     }
 
     func next() {
@@ -235,7 +245,38 @@ final class PlayerController {
         }
     }
 
-    private func startCurrentTrack(reloadMetadata: Bool = true) {
+    /// Restores the last session's queue and track, paused at the saved
+    /// position. Tracks are matched by path against the scanned library;
+    /// anything that no longer exists is silently dropped.
+    func restoreSession(from tracks: [Track]) {
+        guard !hasRestoredSession else { return }
+        hasRestoredSession = true
+        guard currentTrack == nil,
+              let savedTrackPath = UserDefaults.standard.string(forKey: Self.sessionTrackKey) else { return }
+        let savedQueuePaths = UserDefaults.standard.stringArray(forKey: Self.sessionQueueKey) ?? []
+        let savedTime = UserDefaults.standard.double(forKey: Self.sessionTimeKey)
+
+        let byPath = Dictionary(tracks.map { ($0.url.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let restoredQueue = savedQueuePaths.compactMap { byPath[$0] }
+        guard let track = byPath[savedTrackPath],
+              let index = restoredQueue.firstIndex(of: track) else { return }
+
+        queue = restoredQueue
+        originalQueue = restoredQueue
+        currentIndex = index
+        startCurrentTrack(paused: true, startTime: savedTime)
+    }
+
+    private func saveSession() {
+        guard let track = currentTrack else { return }
+        lastSessionSave = Date()
+        let defaults = UserDefaults.standard
+        defaults.set(queue.map { $0.url.path }, forKey: Self.sessionQueueKey)
+        defaults.set(track.url.path, forKey: Self.sessionTrackKey)
+        defaults.set(currentTime, forKey: Self.sessionTimeKey)
+    }
+
+    private func startCurrentTrack(reloadMetadata: Bool = true, paused: Bool = false, startTime: TimeInterval = 0) {
         guard let track = currentTrack else { return }
         // Without the precise-timing option AVFoundation only estimates the
         // duration of compressed audio, so tracks outrun their slider.
@@ -256,11 +297,23 @@ final class PlayerController {
             }
         }
         player.replaceCurrentItem(with: item)
-        player.play()
-        isPlaying = true
+        if paused {
+            isPlaying = false
+            if startTime > 0 {
+                player.seek(
+                    to: CMTime(seconds: startTime, preferredTimescale: 600),
+                    toleranceBefore: .positiveInfinity,
+                    toleranceAfter: .zero
+                )
+            }
+        } else {
+            player.play()
+            isPlaying = true
+        }
         isSeeking = false
-        currentTime = 0
+        currentTime = startTime
         duration = 0
+        saveSession()
         Task {
             let seconds = (try? await item.asset.load(.duration))?.seconds ?? 0
             guard item === player.currentItem else { return }

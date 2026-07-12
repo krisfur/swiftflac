@@ -282,6 +282,13 @@ struct ContentView: View {
             #endif
             path.append(destination)
         }
+        // Pick up where the last session left off, paused, once the first
+        // scan has produced tracks to match the saved session against.
+        .onChange(of: library.isScanning) { _, scanning in
+            if !scanning {
+                player.restoreSession(from: library.playlists.flatMap(\.tracks))
+            }
+        }
         .preferredColorScheme(Appearance(rawValue: appearanceRaw)?.colorScheme)
         .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
             if case .success(let url) = result {
