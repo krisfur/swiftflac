@@ -119,12 +119,40 @@ private enum LibraryScanner {
         }
 
         let all = playlists.flatMap(\.tracks)
+        // Artist pages and All Tracks collapse copies of the same song
+        // living in different folders; folders and albums show every file.
+        let unique = deduplicated(all)
         return LibraryContent(
             playlists: playlists,
             albums: albums(from: all),
-            artists: artists(from: all),
-            allTracks: all.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+            artists: artists(from: unique),
+            allTracks: unique.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
         )
+    }
+
+    /// Collapses tracks sharing the same title, artist, and album tags.
+    /// Untagged files are never merged, and the FLAC copy wins when the
+    /// same song exists in several formats.
+    private static func deduplicated(_ tracks: [Track]) -> [Track] {
+        var indexForKey: [String: Int] = [:]
+        var result: [Track] = []
+        for track in tracks {
+            guard let title = track.title else {
+                result.append(track)
+                continue
+            }
+            let key = "\(title)|\(track.artist ?? "")|\(track.album ?? "")".lowercased()
+            if let index = indexForKey[key] {
+                if track.url.pathExtension.lowercased() == "flac",
+                   result[index].url.pathExtension.lowercased() != "flac" {
+                    result[index] = track
+                }
+            } else {
+                indexForKey[key] = result.count
+                result.append(track)
+            }
+        }
+        return result
     }
 
     /// Collects audio files anywhere below the folder, so nested album folders still play.
