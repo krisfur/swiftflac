@@ -44,6 +44,89 @@ extension EnvironmentValues {
     }
 }
 
+#if os(iOS)
+/// Installs a single window-level, direction-gated pan recognizer that
+/// drives forward navigation. Window-level because pushed NavigationStack
+/// screens live in UIKit hosting layers that SwiftUI-attached gestures
+/// cannot see into; velocity-gated so it never begins for rightward drags
+/// (the system back swipe) or vertical ones (scrolling); simultaneous so
+/// it observes without stealing.
+private struct ForwardSwipeInstaller: UIViewRepresentable {
+    let isEnabled: () -> Bool
+    let onForward: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> InstallerView {
+        let view = InstallerView()
+        view.isUserInteractionEnabled = false
+        let coordinator = context.coordinator
+        view.onWindow = { window in
+            guard coordinator.recognizer == nil else { return }
+            let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.handle(_:)))
+            pan.delegate = coordinator
+            pan.maximumNumberOfTouches = 1
+            window.addGestureRecognizer(pan)
+            coordinator.recognizer = pan
+        }
+        return view
+    }
+
+    func updateUIView(_ view: InstallerView, context: Context) {
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.onForward = onForward
+    }
+
+    static func dismantleUIView(_ view: InstallerView, coordinator: Coordinator) {
+        if let recognizer = coordinator.recognizer {
+            recognizer.view?.removeGestureRecognizer(recognizer)
+        }
+    }
+
+    final class InstallerView: UIView {
+        var onWindow: ((UIWindow) -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let window {
+                onWindow?(window)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var isEnabled: () -> Bool = { false }
+        var onForward: () -> Void = {}
+        weak var recognizer: UIPanGestureRecognizer?
+
+        @objc func handle(_ pan: UIPanGestureRecognizer) {
+            guard pan.state == .ended, let view = pan.view else { return }
+            let translation = pan.translation(in: view)
+            if translation.x < -60, abs(translation.y) < 80 {
+                onForward()
+            }
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard isEnabled(),
+                  let pan = gestureRecognizer as? UIPanGestureRecognizer,
+                  let view = pan.view else { return false }
+            let velocity = pan.velocity(in: view)
+            return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.5
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+#endif
+
 struct ContentView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(PlayerController.self) private var player
@@ -58,13 +141,13 @@ struct ContentView: View {
     @State private var savedPaths: [BrowseMode: [LibraryDestination]] = [:]
     @State private var forwardStack: [LibraryDestination] = []
     @State private var isRestoringPath = false
+    @State private var lastForwardPush = Date.distantPast
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var forwardMode: BrowseMode?
-    @State private var debugGesture = ""  // DEBUG: remove.
     // Where the current song was played from, so the now-playing screen
     // can always swipe back to that list.
     @State private var playbackOrigin: (mode: BrowseMode?, path: [LibraryDestination])?
@@ -111,34 +194,30 @@ struct ContentView: View {
                     }
             }
             #if os(iOS)
-            // Swipe left to re-enter the screen you just swiped back out of;
-            // swipe right at a category root to go all the way back to the
-            // Library list (the system swipe only pops within the stack).
+            // Swipe right at a category root to go all the way back to the
+            // Library list; leftward (forward) swipes are handled by the
+            // window-level recognizer, which sees every screen.
             .simultaneousGesture(
                 DragGesture(minimumDistance: 25)
                     .onEnded { value in
-                        debugGesture = "end w=\(Int(value.translation.width)) h=\(Int(value.translation.height))"
                         guard abs(value.translation.height) < 50 else { return }
-                        if value.translation.width < -70 {
-                            goForward()
-                        } else if value.translation.width > 70, path.isEmpty,
-                                  horizontalSizeClass == .compact {
+                        if value.translation.width > 70, path.isEmpty,
+                           horizontalSizeClass == .compact {
                             forwardMode = mode
                             mode = nil
                         }
                     }
             )
-            // DEBUG: remove.
-            .overlay(alignment: .bottomLeading) {
-                Text("fwd=\(forwardStack.count) path=\(path.count) \(debugGesture)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.red)
-                    .padding(.bottom, 70)
-                    .padding(.leading, 8)
-                    .allowsHitTesting(false)
-            }
             #endif
         }
+        #if os(iOS)
+        .background(
+            ForwardSwipeInstaller(
+                isEnabled: { !forwardStack.isEmpty && path.last != .nowPlaying },
+                onForward: goForward
+            )
+        )
+        #endif
         .onChange(of: mode) { oldMode, newMode in
             #if os(iOS)
             if newMode != nil { forwardMode = nil }
@@ -201,7 +280,11 @@ struct ContentView: View {
     }
 
     private func goForward() {
+        // NavigationStack silently drops path changes made while a push or
+        // pop transition is still running; space consecutive pushes out.
+        guard Date().timeIntervalSince(lastForwardPush) > 0.6 else { return }
         guard let next = forwardStack.last else { return }
+        lastForwardPush = Date()
         forwardStack.removeLast()
         isRestoringPath = true
         path.append(next)
