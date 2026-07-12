@@ -24,6 +24,8 @@ final class PlayerController {
     private(set) var duration: TimeInterval = 0
 
     private let player = AVPlayer()
+    // The macOS route picker needs the player reference to offer AirPlay.
+    var routePickerPlayer: AVPlayer { player }
     private var originalQueue: [Track] = []
     private var timeObserver: Any?
     private var isSeeking = false
@@ -276,7 +278,29 @@ final class PlayerController {
             guard track == currentTrack else { return }
             nowPlaying = metadata
             updateNowPlayingInfo()
+            // AirPlay receivers read metadata from the item itself, not
+            // from MPNowPlayingInfoCenter. (iOS-only API.)
+            #if os(iOS)
+            item.externalMetadata = externalMetadata(for: track)
+            #endif
         }
+    }
+
+    private func externalMetadata(for track: Track) -> [AVMetadataItem] {
+        var items: [AVMetadataItem] = []
+        func add(_ identifier: AVMetadataIdentifier, _ value: (NSCopying & NSObjectProtocol)?) {
+            guard let value else { return }
+            let item = AVMutableMetadataItem()
+            item.identifier = identifier
+            item.value = value
+            item.extendedLanguageTag = "und"
+            items.append(item)
+        }
+        add(.commonIdentifierTitle, (nowPlaying.title ?? track.displayTitle) as NSString)
+        add(.commonIdentifierArtist, nowPlaying.artist as NSString?)
+        add(.commonIdentifierAlbumName, nowPlaying.album as NSString?)
+        add(.commonIdentifierArtwork, nowPlaying.artworkData as NSData?)
+        return items
     }
 
     private func configureRemoteCommands() {
