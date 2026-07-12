@@ -149,6 +149,9 @@ struct ContentView: View {
 
     private static let navModeKey = "navMode"
     private static let navPathKey = "navPath"
+    private static let navForwardKey = "navForward"
+    private static let navOriginModeKey = "navOriginMode"
+    private static let navOriginPathKey = "navOriginPath"
     @State private var showingFolderPicker = false
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
@@ -326,6 +329,16 @@ struct ContentView: View {
         let defaults = UserDefaults.standard
         defaults.set(mode?.rawValue, forKey: Self.navModeKey)
         defaults.set(path.map(persistenceToken(for:)), forKey: Self.navPathKey)
+        defaults.set(forwardStack.map(persistenceToken(for:)), forKey: Self.navForwardKey)
+        #if os(iOS)
+        if let playbackOrigin {
+            defaults.set(playbackOrigin.mode?.rawValue, forKey: Self.navOriginModeKey)
+            defaults.set(playbackOrigin.path.map(persistenceToken(for:)), forKey: Self.navOriginPathKey)
+        } else {
+            defaults.removeObject(forKey: Self.navOriginModeKey)
+            defaults.removeObject(forKey: Self.navOriginPathKey)
+        }
+        #endif
     }
 
     private func resolveDestination(_ token: String) -> LibraryDestination? {
@@ -358,30 +371,55 @@ struct ContentView: View {
 
         var restoredPath: [LibraryDestination] = []
         for token in defaults.stringArray(forKey: Self.navPathKey) ?? [] {
-            guard let destination = resolveDestination(token) else {
-                break
-            }
+            guard let destination = resolveDestination(token) else { break }
             restoredPath.append(destination)
         }
-        // Never land on an empty player.
+        // Never land on (or forward-navigate to) an empty player.
         if restoredPath.last == .nowPlaying, player.currentTrack == nil {
             restoredPath.removeLast()
         }
-        if restoredPath.last == .nowPlaying {
-            playbackOrigin = (savedMode, Array(restoredPath.dropLast()))
+        let restoredForward = (defaults.stringArray(forKey: Self.navForwardKey) ?? [])
+            .compactMap(resolveDestination)
+            .filter { $0 != .nowPlaying || player.currentTrack != nil }
+        if player.currentTrack != nil,
+           let originModeRaw = defaults.string(forKey: Self.navOriginModeKey) {
+            var originPath: [LibraryDestination] = []
+            for token in defaults.stringArray(forKey: Self.navOriginPathKey) ?? [] {
+                guard let destination = resolveDestination(token) else { break }
+                originPath.append(destination)
+            }
+            playbackOrigin = (BrowseMode(rawValue: originModeRaw), originPath)
         }
+
         savedPaths[savedMode] = []
         mode = savedMode
-        guard !restoredPath.isEmpty else { return }
-        // NavigationStack drops all but the first of simultaneously
-        // assigned pushes, so walk the stack back one screen per
-        // transition, bailing out if the user starts navigating.
+        guard !restoredPath.isEmpty || !restoredForward.isEmpty else { return }
+        // NavigationStack drops path mutations made mid-transition, so the
+        // stack is walked back one screen at a time with animations off:
+        // no transitions means nothing to drop, and no visible walkthrough.
+        // Any screen that still fails to land joins the forward stack, so
+        // the full chain stays reachable by swiping forward.
         Task { @MainActor in
             for (index, destination) in restoredPath.enumerated() {
-                try? await Task.sleep(for: .milliseconds(650))
-                guard path.count == index, mode == savedMode else { return }
+                try? await Task.sleep(for: .milliseconds(index == 0 ? 150 : 250))
+                guard mode == savedMode else { return }
+                guard path.count == index else { break }
                 isRestoringPath = true
-                path.append(destination)
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    path.append(destination)
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard mode == savedMode else { return }
+            var forward = restoredForward
+            if path.count < restoredPath.count {
+                forward.append(contentsOf: restoredPath[path.count...].reversed())
+            }
+            if !forward.isEmpty {
+                forwardStack = forward
+                saveNavigation()
             }
         }
         #endif
@@ -403,6 +441,7 @@ struct ContentView: View {
     private func playFromList() {
         #if os(iOS)
         playbackOrigin = (mode, path)
+        saveNavigation()
         #endif
         openNowPlaying()
     }
