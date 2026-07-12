@@ -335,22 +335,41 @@ struct TrackListView: View {
     let tracks: [Track]
     var showsArtist = true
     var onPlay: () -> Void = {}
+    @State private var searchText = ""
+
+    // Titles first; if nothing matches, fall back to the artist so an
+    // artist's name pulls up their songs.
+    private var filteredTracks: [Track] {
+        guard !searchText.isEmpty else { return tracks }
+        let byTitle = tracks.filter { $0.displayTitle.localizedStandardContains(searchText) }
+        if !byTitle.isEmpty { return byTitle }
+        return tracks.filter { $0.artist?.localizedStandardContains(searchText) == true }
+    }
 
     var body: some View {
-        List(tracks) { track in
-            Button {
-                player.play(track, in: tracks)
-                onPlay()
-            } label: {
-                TrackRow(track: track, isPlaying: player.currentTrack == track, showsArtist: showsArtist)
-                    .contentShape(Rectangle())
+        VStack(spacing: 0) {
+            SearchField(text: $searchText, prompt: "Title or Artist")
+            List(filteredTracks) { track in
+                Button {
+                    player.play(track, in: filteredTracks)
+                    onPlay()
+                } label: {
+                    TrackRow(track: track, isPlaying: player.currentTrack == track, showsArtist: showsArtist)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .overlay {
+                if filteredTracks.isEmpty, !searchText.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            .miniBarClearance()
         }
-        .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle(title)
-        .miniBarClearance()
+        .onDisappear { searchText = "" }
         .optionsToolbar()
     }
 }
