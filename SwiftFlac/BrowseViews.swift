@@ -31,31 +31,49 @@ struct SearchField: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal)
         .padding(.bottom, 6)
+        #if os(macOS)
+        // Breathing room below the window toolbar.
+        .padding(.top, 10)
+        #endif
     }
 }
 
 struct FoldersView: View {
     @Environment(MusicLibrary.self) private var library
+    @State private var searchText = ""
+
+    private var filteredPlaylists: [Playlist] {
+        guard !searchText.isEmpty else { return library.playlists }
+        return library.playlists.filter { $0.name.localizedStandardContains(searchText) }
+    }
 
     var body: some View {
-        List(library.playlists) { playlist in
-            NavigationLink(value: LibraryDestination.playlist(playlist)) {
-                Label {
-                    VStack(alignment: .leading) {
-                        Text(playlist.name)
-                        Text("\(playlist.tracks.count) tracks")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            SearchField(text: $searchText, prompt: "Folder")
+            List(filteredPlaylists) { playlist in
+                NavigationLink(value: LibraryDestination.playlist(playlist)) {
+                    Label {
+                        VStack(alignment: .leading) {
+                            Text(playlist.name)
+                            Text("\(playlist.tracks.count) tracks")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "folder.fill")
                     }
-                } icon: {
-                    Image(systemName: "folder.fill")
                 }
             }
+            .scrollContentBackground(.hidden)
+            .overlay {
+                if filteredPlaylists.isEmpty, !searchText.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            .miniBarClearance()
         }
-        .scrollContentBackground(.hidden)
         .background(AppBackground())
         .navigationTitle("Folders")
-        .miniBarClearance()
         .optionsToolbar()
     }
 }
