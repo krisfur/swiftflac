@@ -369,7 +369,6 @@ struct TrackListView: View {
         }
         .background(AppBackground())
         .navigationTitle(title)
-        .onDisappear { searchText = "" }
         .optionsToolbar()
     }
 }

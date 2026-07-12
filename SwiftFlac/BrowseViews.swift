@@ -96,7 +96,6 @@ struct ArtistsView: View {
         }
         .background(AppBackground())
         .navigationTitle("Artists")
-        .onDisappear { searchText = "" }
         .optionsToolbar()
     }
 }
@@ -139,7 +138,6 @@ struct AlbumsView: View {
         }
         .background(AppBackground())
         .navigationTitle("Albums")
-        .onDisappear { searchText = "" }
         .optionsToolbar()
     }
 }
