@@ -49,6 +49,22 @@ final class PlayerController {
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
         configureRemoteCommands()
+        #if os(macOS)
+        // Focused lists swallow bare Space (scroll page-down) before menu
+        // shortcuts see it, so play/pause is handled app-wide here instead.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self,
+                      event.keyCode == 49,  // space
+                      event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+                      !(NSApp.keyWindow?.firstResponder is NSText),
+                      self.currentTrack != nil
+                else { return event }
+                self.togglePlayPause()
+                return nil
+            }
+        }
+        #endif
 
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
