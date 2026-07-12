@@ -45,6 +45,17 @@ The app icon source is `swiftflac-icon.svg`; run `./generate_icon.sh` after edit
 
 The macOS 26 Dock shows a generic placeholder icon for apps launched from build directories, including the one `build_and_run_mac.sh` produces. The real icon appears when the app runs from `/Applications` or `~/Applications`; nothing else is affected.
 
+### Running on an iPhone
+
+A free Apple ID is enough, no paid developer account needed:
+
+1. Xcode → Settings → Accounts → add your Apple ID (creates a free Personal Team).
+2. On the iPhone: Settings → Privacy & Security → Developer Mode → on (restarts the phone). Connect it by cable once and tap Trust.
+3. Open the project in Xcode, target → Signing & Capabilities → tick "Automatically manage signing" and pick your team.
+4. Select the iPhone as run destination and hit Run. On first launch, trust the certificate on the phone under Settings → General → VPN & Device Management.
+
+Free-account builds expire after 7 days; hit Run again to re-sign. Add music via Finder file sharing (iPhone → Files → SwiftFlac) and rescan from the ⋯ menu.
+
 ## License
 
 MIT - see [LICENSE](LICENSE).
