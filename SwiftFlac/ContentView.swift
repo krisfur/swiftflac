@@ -236,8 +236,7 @@ struct ContentView: View {
                         if value.translation.width > 70, path.isEmpty,
                            horizontalSizeClass == .compact
                         {
-                            forwardMode = mode
-                            preserveForwardStack = true
+                            // onChange(of: mode) records the forward history.
                             mode = nil
                         }
                     }
@@ -256,7 +255,12 @@ struct ContentView: View {
         #endif
         .onChange(of: mode) { oldMode, newMode in
             #if os(iOS)
-                if newMode != nil {
+                if newMode == nil {
+                    // Landing back on the Library list keeps the forward history
+                    // so a left swipe can retrace it.
+                    forwardMode = oldMode
+                    preserveForwardStack = true
+                } else {
                     forwardMode = nil
                 }
             #endif
