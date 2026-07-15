@@ -1,7 +1,27 @@
 import SwiftUI
+#if canImport(UIKit)
+    import UIKit
+#endif
 
-/// Fixed search field that sits between the navigation title and the
-/// content, so nothing can overlap or hide it.
+#if os(iOS)
+    func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+#endif
+
+extension View {
+    /// Hides the on-screen keyboard as soon as the user scrolls the
+    /// content below the search field.
+    @ViewBuilder
+    func dismissesSearchKeyboard() -> some View {
+        #if os(iOS)
+            scrollDismissesKeyboard(.immediately)
+        #else
+            self
+        #endif
+    }
+}
+
 struct SearchField: View {
     @Binding var text: String
     var prompt: String
@@ -12,13 +32,16 @@ struct SearchField: View {
                 .foregroundStyle(.secondary)
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
-                #if os(iOS)
+            #if os(iOS)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-                #endif
+            #endif
             if !text.isEmpty {
                 Button {
                     text = ""
+                    #if os(iOS)
+                        hideKeyboard()
+                    #endif
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -32,8 +55,8 @@ struct SearchField: View {
         .padding(.horizontal)
         .padding(.bottom, 6)
         #if os(macOS)
-        // Breathing room below the window toolbar.
-        .padding(.top, 10)
+            // Breathing room below the window toolbar.
+            .padding(.top, 10)
         #endif
     }
 }
@@ -70,6 +93,7 @@ struct FoldersView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
+            .dismissesSearchKeyboard()
             .miniBarClearance()
         }
         .background(AppBackground())
@@ -110,6 +134,7 @@ struct ArtistsView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
+            .dismissesSearchKeyboard()
             .miniBarClearance()
         }
         .background(AppBackground())
@@ -124,12 +149,14 @@ struct AlbumsView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 16)]
 
-    // Album names first; if nothing matches, fall back to the artist so
-    // an artist's name pulls up their albums.
+    /// Album names first; if nothing matches, fall back to the artist so
+    /// an artist's name pulls up their albums.
     private var filteredAlbums: [Album] {
         guard !searchText.isEmpty else { return library.albums }
         let byName = library.albums.filter { $0.name.localizedStandardContains(searchText) }
-        if !byName.isEmpty { return byName }
+        if !byName.isEmpty {
+            return byName
+        }
         return library.albums.filter { $0.artist?.localizedStandardContains(searchText) == true }
     }
 
@@ -152,6 +179,7 @@ struct AlbumsView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
+            .dismissesSearchKeyboard()
             .miniBarClearance()
         }
         .background(AppBackground())
@@ -208,8 +236,12 @@ final class ArtworkStore {
 
     func artwork(for track: Track?) async -> Data? {
         guard let url = track?.url else { return nil }
-        if let cached = cache[url] { return cached }
-        if misses.contains(url) { return nil }
+        if let cached = cache[url] {
+            return cached
+        }
+        if misses.contains(url) {
+            return nil
+        }
         let data = await Task.detached(priority: .utility) {
             await loadMetadata(from: url, includeArtwork: true).artworkData
         }.value
