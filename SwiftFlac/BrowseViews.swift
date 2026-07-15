@@ -1,4 +1,28 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
+
+#if os(iOS)
+func hideKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+#endif
+
+extension View {
+    /// Hides the on-screen keyboard as soon as the user scrolls the
+    /// content below the search field. Taps outside the field are handled
+    /// by the window-level recognizer in ContentView; a SwiftUI tap
+    /// gesture here would swallow the List's own row taps.
+    @ViewBuilder
+    func dismissesSearchKeyboard() -> some View {
+        #if os(iOS)
+        scrollDismissesKeyboard(.immediately)
+        #else
+        self
+        #endif
+    }
+}
 
 /// Fixed search field that sits between the navigation title and the
 /// content, so nothing can overlap or hide it.
@@ -19,6 +43,9 @@ struct SearchField: View {
             if !text.isEmpty {
                 Button {
                     text = ""
+                    #if os(iOS)
+                    hideKeyboard()
+                    #endif
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -70,6 +97,7 @@ struct FoldersView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
+            .dismissesSearchKeyboard()
             .miniBarClearance()
         }
         .background(AppBackground())
@@ -110,6 +138,7 @@ struct ArtistsView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
+            .dismissesSearchKeyboard()
             .miniBarClearance()
         }
         .background(AppBackground())
@@ -152,6 +181,7 @@ struct AlbumsView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
+            .dismissesSearchKeyboard()
             .miniBarClearance()
         }
         .background(AppBackground())

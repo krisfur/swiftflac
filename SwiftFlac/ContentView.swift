@@ -45,13 +45,26 @@ extension EnvironmentValues {
 }
 
 #if os(iOS)
-/// Installs a single window-level, direction-gated pan recognizer that
-/// drives forward navigation. Window-level because pushed NavigationStack
-/// screens live in UIKit hosting layers that SwiftUI-attached gestures
-/// cannot see into; velocity-gated so it never begins for rightward drags
-/// (the system back swipe) or vertical ones (scrolling); simultaneous so
-/// it observes without stealing.
-private struct ForwardSwipeInstaller: UIViewRepresentable {
+/// Hosting view that reports when it lands in a window, so the installer
+/// below can attach its window-level gesture recognizers.
+private final class WindowHookView: UIView {
+    var onWindow: ((UIWindow) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if let window {
+            onWindow?(window)
+        }
+    }
+}
+
+/// Installs the app's window-level gesture recognizers: a direction-gated
+/// pan that drives forward navigation and a non-cancelling tap that hides
+/// the keyboard. Window-level because pushed NavigationStack screens live
+/// in UIKit hosting layers that SwiftUI-attached gestures cannot see into,
+/// and because SwiftUI gestures attached to the lists swallow row taps;
+/// these only observe, they never steal a touch.
+private struct WindowGestureInstaller: UIViewRepresentable {
     let isEnabled: () -> Bool
     let onForward: () -> Void
 
@@ -59,49 +72,41 @@ private struct ForwardSwipeInstaller: UIViewRepresentable {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> InstallerView {
-        let view = InstallerView()
+    func makeUIView(context: Context) -> WindowHookView {
+        let view = WindowHookView()
         view.isUserInteractionEnabled = false
         let coordinator = context.coordinator
         view.onWindow = { window in
-            guard coordinator.recognizer == nil else { return }
-            let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.handle(_:)))
+            guard coordinator.recognizers.isEmpty else { return }
+            let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.handlePan(_:)))
             pan.delegate = coordinator
             pan.maximumNumberOfTouches = 1
-            window.addGestureRecognizer(pan)
-            coordinator.recognizer = pan
+            let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleTap))
+            tap.cancelsTouchesInView = false
+            tap.delegate = coordinator
+            coordinator.recognizers = [pan, tap]
+            coordinator.recognizers.forEach(window.addGestureRecognizer)
         }
         return view
     }
 
-    func updateUIView(_ view: InstallerView, context: Context) {
+    func updateUIView(_ view: WindowHookView, context: Context) {
         context.coordinator.isEnabled = isEnabled
         context.coordinator.onForward = onForward
     }
 
-    static func dismantleUIView(_ view: InstallerView, coordinator: Coordinator) {
-        if let recognizer = coordinator.recognizer {
+    static func dismantleUIView(_ view: WindowHookView, coordinator: Coordinator) {
+        for recognizer in coordinator.recognizers {
             recognizer.view?.removeGestureRecognizer(recognizer)
-        }
-    }
-
-    final class InstallerView: UIView {
-        var onWindow: ((UIWindow) -> Void)?
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            if let window {
-                onWindow?(window)
-            }
         }
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var isEnabled: () -> Bool = { false }
         var onForward: () -> Void = {}
-        weak var recognizer: UIPanGestureRecognizer?
+        var recognizers: [UIGestureRecognizer] = []
 
-        @objc func handle(_ pan: UIPanGestureRecognizer) {
+        @objc func handlePan(_ pan: UIPanGestureRecognizer) {
             guard pan.state == .ended, let view = pan.view else { return }
             let translation = pan.translation(in: view)
             if translation.x < -60, abs(translation.y) < 80 {
@@ -109,12 +114,28 @@ private struct ForwardSwipeInstaller: UIViewRepresentable {
             }
         }
 
+        @objc func handleTap() {
+            hideKeyboard()
+        }
+
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard isEnabled(),
-                  let pan = gestureRecognizer as? UIPanGestureRecognizer,
-                  let view = pan.view else { return false }
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+                  let view = pan.view else { return true }
+            guard isEnabled() else { return false }
             let velocity = pan.velocity(in: view)
             return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.5
+        }
+
+        // Taps inside a text field keep their caret placement instead of
+        // bouncing the keyboard down and back up.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard gestureRecognizer is UITapGestureRecognizer else { return true }
+            var view = touch.view
+            while let current = view {
+                if current is UITextField || current is UITextView { return false }
+                view = current.superview
+            }
+            return true
         }
 
         func gestureRecognizer(
@@ -224,7 +245,7 @@ struct ContentView: View {
         }
         #if os(iOS)
         .background(
-            ForwardSwipeInstaller(
+            WindowGestureInstaller(
                 // mode == nil means the Library list is showing, where its
                 // own gesture handles the forward swipe.
                 isEnabled: { mode != nil && !forwardStack.isEmpty && path.last != .nowPlaying },
@@ -642,7 +663,9 @@ struct TrackListView: View {
                 TrackRow(track: track, isPlaying: player.currentTrack == track, showsArtist: showsArtist)
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        player.play(track, in: filteredTracks)
+                        // Queue the whole list, not just the search matches,
+                        // so playback continues past the filtered subset.
+                        player.play(track, in: tracks)
                         onPlay()
                     }
             }
@@ -652,6 +675,7 @@ struct TrackListView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
+            .dismissesSearchKeyboard()
             .miniBarClearance()
         }
         .background(AppBackground())
