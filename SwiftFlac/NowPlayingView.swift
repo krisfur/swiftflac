@@ -1,17 +1,17 @@
-import SwiftUI
 import AVKit
+import SwiftUI
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #else
-import AppKit
+    import AppKit
 #endif
 
 func artworkImage(from data: Data?) -> Image? {
     guard let data else { return nil }
     #if canImport(UIKit)
-    return UIImage(data: data).map(Image.init(uiImage:))
+        return UIImage(data: data).map(Image.init(uiImage:))
     #else
-    return NSImage(data: data).map(Image.init(nsImage:))
+        return NSImage(data: data).map(Image.init(nsImage:))
     #endif
 }
 
@@ -189,12 +189,12 @@ struct NowPlayingView: View {
         }
         .background(AppBackground())
         #if os(macOS)
-        .frame(minWidth: 420, minHeight: 540)
-        .overlay(alignment: .topTrailing) {
-            AirPlayButton(player: player.routePickerPlayer)
-                .frame(width: 24, height: 24)
-                .padding(12)
-        }
+            .frame(minWidth: 420, minHeight: 540)
+            .overlay(alignment: .topTrailing) {
+                AirPlayButton(player: player.routePickerPlayer)
+                    .frame(width: 24, height: 24)
+                    .padding(12)
+            }
         #endif
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -253,9 +253,9 @@ struct NowPlayingView: View {
         .padding(.horizontal)
     }
 
-    // Custom scrubber instead of Slider: the iOS 26 system slider opens
-    // phantom editing sessions and echoes stale values through its binding
-    // around track changes, which repeatedly froze this view.
+    /// Custom scrubber instead of Slider: the iOS 26 system slider opens
+    /// phantom editing sessions and echoes stale values through its binding
+    /// around track changes, which repeatedly froze this view.
     private var scrubber: some View {
         let playbackFraction = player.duration > 0 ? player.currentTime / player.duration : 0
         return VStack(spacing: 4) {
@@ -317,32 +317,32 @@ struct NowPlayingView: View {
 }
 
 #if os(iOS)
-struct AirPlayButton: UIViewRepresentable {
-    let player: AVPlayer
+    struct AirPlayButton: UIViewRepresentable {
+        let player: AVPlayer
 
-    func makeUIView(context: Context) -> AVRoutePickerView {
-        let picker = AVRoutePickerView()
-        picker.backgroundColor = .clear
-        picker.tintColor = .secondaryLabel
-        picker.activeTintColor = .label
-        return picker
+        func makeUIView(context _: Context) -> AVRoutePickerView {
+            let picker = AVRoutePickerView()
+            picker.backgroundColor = .clear
+            picker.tintColor = .secondaryLabel
+            picker.activeTintColor = .label
+            return picker
+        }
+
+        func updateUIView(_: AVRoutePickerView, context _: Context) {}
     }
-
-    func updateUIView(_ view: AVRoutePickerView, context: Context) {}
-}
 #else
-struct AirPlayButton: NSViewRepresentable {
-    let player: AVPlayer
+    struct AirPlayButton: NSViewRepresentable {
+        let player: AVPlayer
 
-    func makeNSView(context: Context) -> AVRoutePickerView {
-        let picker = AVRoutePickerView()
-        picker.player = player
-        picker.isRoutePickerButtonBordered = false
-        return picker
+        func makeNSView(context _: Context) -> AVRoutePickerView {
+            let picker = AVRoutePickerView()
+            picker.player = player
+            picker.isRoutePickerButtonBordered = false
+            return picker
+        }
+
+        func updateNSView(_: AVRoutePickerView, context _: Context) {}
     }
-
-    func updateNSView(_ view: AVRoutePickerView, context: Context) {}
-}
 #endif
 
 /// A capsule progress bar with drag-to-seek. `onScrub` is called with the

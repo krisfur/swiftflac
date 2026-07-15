@@ -3,7 +3,9 @@ import SwiftUI
 enum BrowseMode: String, CaseIterable, Identifiable {
     case albums, artists, folders, allTracks
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var title: String {
         switch self {
@@ -45,107 +47,104 @@ extension EnvironmentValues {
 }
 
 #if os(iOS)
-/// Hosting view that reports when it lands in a window, so the installer
-/// below can attach its window-level gesture recognizers.
-private final class WindowHookView: UIView {
-    var onWindow: ((UIWindow) -> Void)?
+    /// Hosting view that reports when it lands in a window, so the installer
+    /// below can attach its window-level gesture recognizers.
+    private final class WindowHookView: UIView {
+        var onWindow: ((UIWindow) -> Void)?
 
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if let window {
-            onWindow?(window)
-        }
-    }
-}
-
-/// Installs the app's window-level gesture recognizers: a direction-gated
-/// pan that drives forward navigation and a non-cancelling tap that hides
-/// the keyboard. Window-level because pushed NavigationStack screens live
-/// in UIKit hosting layers that SwiftUI-attached gestures cannot see into,
-/// and because SwiftUI gestures attached to the lists swallow row taps;
-/// these only observe, they never steal a touch.
-private struct WindowGestureInstaller: UIViewRepresentable {
-    let isEnabled: () -> Bool
-    let onForward: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeUIView(context: Context) -> WindowHookView {
-        let view = WindowHookView()
-        view.isUserInteractionEnabled = false
-        let coordinator = context.coordinator
-        view.onWindow = { window in
-            guard coordinator.recognizers.isEmpty else { return }
-            let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.handlePan(_:)))
-            pan.delegate = coordinator
-            pan.maximumNumberOfTouches = 1
-            let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleTap))
-            tap.cancelsTouchesInView = false
-            tap.delegate = coordinator
-            coordinator.recognizers = [pan, tap]
-            coordinator.recognizers.forEach(window.addGestureRecognizer)
-        }
-        return view
-    }
-
-    func updateUIView(_ view: WindowHookView, context: Context) {
-        context.coordinator.isEnabled = isEnabled
-        context.coordinator.onForward = onForward
-    }
-
-    static func dismantleUIView(_ view: WindowHookView, coordinator: Coordinator) {
-        for recognizer in coordinator.recognizers {
-            recognizer.view?.removeGestureRecognizer(recognizer)
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let window {
+                onWindow?(window)
+            }
         }
     }
 
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var isEnabled: () -> Bool = { false }
-        var onForward: () -> Void = {}
-        var recognizers: [UIGestureRecognizer] = []
+    /// Installs the app's window-level gesture recognizers.
+    private struct WindowGestureInstaller: UIViewRepresentable {
+        let isEnabled: () -> Bool
+        let onForward: () -> Void
 
-        @objc func handlePan(_ pan: UIPanGestureRecognizer) {
-            guard pan.state == .ended, let view = pan.view else { return }
-            let translation = pan.translation(in: view)
-            if translation.x < -60, abs(translation.y) < 80 {
-                onForward()
+        func makeCoordinator() -> Coordinator {
+            Coordinator()
+        }
+
+        func makeUIView(context: Context) -> WindowHookView {
+            let view = WindowHookView()
+            view.isUserInteractionEnabled = false
+            let coordinator = context.coordinator
+            view.onWindow = { window in
+                guard coordinator.recognizers.isEmpty else { return }
+                let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.handlePan(_:)))
+                pan.delegate = coordinator
+                pan.maximumNumberOfTouches = 1
+                let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.handleTap))
+                tap.cancelsTouchesInView = false
+                tap.delegate = coordinator
+                coordinator.recognizers = [pan, tap]
+                coordinator.recognizers.forEach(window.addGestureRecognizer)
+            }
+            return view
+        }
+
+        func updateUIView(_: WindowHookView, context: Context) {
+            context.coordinator.isEnabled = isEnabled
+            context.coordinator.onForward = onForward
+        }
+
+        static func dismantleUIView(_: WindowHookView, coordinator: Coordinator) {
+            for recognizer in coordinator.recognizers {
+                recognizer.view?.removeGestureRecognizer(recognizer)
             }
         }
 
-        @objc func handleTap() {
-            hideKeyboard()
-        }
+        final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+            var isEnabled: () -> Bool = { false }
+            var onForward: () -> Void = {}
+            var recognizers: [UIGestureRecognizer] = []
 
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
-                  let view = pan.view else { return true }
-            guard isEnabled() else { return false }
-            let velocity = pan.velocity(in: view)
-            return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.5
-        }
-
-        // Taps inside a text field keep their caret placement instead of
-        // bouncing the keyboard down and back up.
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard gestureRecognizer is UITapGestureRecognizer else { return true }
-            var view = touch.view
-            while let current = view {
-                if current is UITextField || current is UITextView { return false }
-                view = current.superview
+            @objc func handlePan(_ pan: UIPanGestureRecognizer) {
+                guard pan.state == .ended, let view = pan.view else { return }
+                let translation = pan.translation(in: view)
+                if translation.x < -60, abs(translation.y) < 80 {
+                    onForward()
+                }
             }
-            return true
-        }
 
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            true
+            @objc func handleTap() {
+                hideKeyboard()
+            }
+
+            func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+                guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+                      let view = pan.view else { return true }
+                guard isEnabled() else { return false }
+                let velocity = pan.velocity(in: view)
+                return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.5
+            }
+
+            /// Taps inside a text field keep their caret placement instead of
+            /// bouncing the keyboard down and back up.
+            func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+                guard gestureRecognizer is UITapGestureRecognizer else { return true }
+                var view = touch.view
+                while let current = view {
+                    if current is UITextField || current is UITextView {
+                        return false
+                    }
+                    view = current.superview
+                }
+                return true
+            }
+
+            func gestureRecognizer(
+                _: UIGestureRecognizer,
+                shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer
+            ) -> Bool {
+                true
+            }
         }
     }
-}
 #endif
 
 struct ContentView: View {
@@ -154,9 +153,9 @@ struct ContentView: View {
     // iPhone starts on the Library list itself; macOS needs a selection
     // because its detail pane is always visible.
     #if os(macOS)
-    @State private var mode: BrowseMode? = .folders
+        @State private var mode: BrowseMode? = .folders
     #else
-    @State private var mode: BrowseMode?
+        @State private var mode: BrowseMode?
     #endif
     @State private var path: [LibraryDestination] = []
     @State private var savedPaths: [BrowseMode: [LibraryDestination]] = [:]
@@ -177,11 +176,11 @@ struct ContentView: View {
     @State private var showingNowPlaying = false
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
     #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var forwardMode: BrowseMode?
-    // Where the current song was played from, so the now-playing screen
-    // can always swipe back to that list.
-    @State private var playbackOrigin: (mode: BrowseMode?, path: [LibraryDestination])?
+        @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+        @State private var forwardMode: BrowseMode?
+        /// Where the current song was played from, so the now-playing screen
+        /// can always swipe back to that list.
+        @State private var playbackOrigin: (mode: BrowseMode?, path: [LibraryDestination])?
     #endif
 
     var body: some View {
@@ -192,33 +191,34 @@ struct ContentView: View {
             }
             .navigationTitle("Library")
             #if os(iOS)
-            .scrollContentBackground(.hidden)
-            .background(AppBackground())
-            // Swipe left on the Library list to return to the category
-            // you swiped back out of.
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 25)
-                    .onEnded { value in
-                        if value.translation.width < -70, abs(value.translation.height) < 50,
-                           let forwardMode {
-                            preserveForwardStack = true
-                            mode = forwardMode
+                .scrollContentBackground(.hidden)
+                .background(AppBackground())
+                // Swipe left on the Library list to return to the category
+                // you swiped back out of.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 25)
+                        .onEnded { value in
+                            if value.translation.width < -70, abs(value.translation.height) < 50,
+                               let forwardMode
+                            {
+                                preserveForwardStack = true
+                                mode = forwardMode
+                            }
                         }
-                    }
-            )
+                )
             #endif
-            .miniBarClearance()
-            .optionsToolbar()
+                .miniBarClearance()
+                .optionsToolbar()
         } detail: {
             NavigationStack(path: $path) {
                 detailRoot
                     .navigationDestination(for: LibraryDestination.self) { destination in
                         switch destination {
-                        case .playlist(let playlist):
+                        case let .playlist(playlist):
                             TrackListView(title: playlist.name, tracks: playlist.tracks, onPlay: playFromList)
-                        case .album(let album):
+                        case let .album(album):
                             TrackListView(title: album.name, tracks: album.tracks, onPlay: playFromList)
-                        case .artist(let artist):
+                        case let .artist(artist):
                             TrackListView(title: artist.name, tracks: artist.tracks, showsArtist: false, onPlay: playFromList)
                         case .nowPlaying:
                             NowPlayingView()
@@ -234,7 +234,8 @@ struct ContentView: View {
                     .onEnded { value in
                         guard abs(value.translation.height) < 50 else { return }
                         if value.translation.width > 70, path.isEmpty,
-                           horizontalSizeClass == .compact {
+                           horizontalSizeClass == .compact
+                        {
                             forwardMode = mode
                             preserveForwardStack = true
                             mode = nil
@@ -255,9 +256,13 @@ struct ContentView: View {
         #endif
         .onChange(of: mode) { oldMode, newMode in
             #if os(iOS)
-            if newMode != nil { forwardMode = nil }
+                if newMode != nil {
+                    forwardMode = nil
+                }
             #endif
-            if let oldMode { savedPaths[oldMode] = path }
+            if let oldMode {
+                savedPaths[oldMode] = path
+            }
             let restored = newMode.flatMap { savedPaths[$0] } ?? []
             if preserveForwardStack {
                 preserveForwardStack = false
@@ -308,7 +313,7 @@ struct ContentView: View {
         #endif
         .environment(\.libraryNavigate) { destination in
             #if os(macOS)
-            showingNowPlaying = false
+                showingNowPlaying = false
             #endif
             path.append(destination)
         }
@@ -323,7 +328,7 @@ struct ContentView: View {
         }
         .preferredColorScheme(Appearance(rawValue: appearanceRaw)?.colorScheme)
         .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
+            if case let .success(url) = result {
                 library.setRootFolder(url)
             }
         }
@@ -338,9 +343,9 @@ struct ContentView: View {
 
     private func persistenceToken(for destination: LibraryDestination) -> String {
         switch destination {
-        case .playlist(let playlist): "playlist|\(rootRelativePath(playlist.folderURL))"
-        case .album(let album): "album|\(album.id)"
-        case .artist(let artist): "artist|\(artist.name)"
+        case let .playlist(playlist): "playlist|\(rootRelativePath(playlist.folderURL))"
+        case let .album(album): "album|\(album.id)"
+        case let .artist(artist): "artist|\(artist.name)"
         case .nowPlaying: "nowPlaying"
         }
     }
@@ -351,13 +356,13 @@ struct ContentView: View {
         defaults.set(path.map(persistenceToken(for:)), forKey: Self.navPathKey)
         defaults.set(forwardStack.map(persistenceToken(for:)), forKey: Self.navForwardKey)
         #if os(iOS)
-        if let playbackOrigin {
-            defaults.set(playbackOrigin.mode?.rawValue, forKey: Self.navOriginModeKey)
-            defaults.set(playbackOrigin.path.map(persistenceToken(for:)), forKey: Self.navOriginPathKey)
-        } else {
-            defaults.removeObject(forKey: Self.navOriginModeKey)
-            defaults.removeObject(forKey: Self.navOriginPathKey)
-        }
+            if let playbackOrigin {
+                defaults.set(playbackOrigin.mode?.rawValue, forKey: Self.navOriginModeKey)
+                defaults.set(playbackOrigin.path.map(persistenceToken(for:)), forKey: Self.navOriginPathKey)
+            } else {
+                defaults.removeObject(forKey: Self.navOriginModeKey)
+                defaults.removeObject(forKey: Self.navOriginPathKey)
+            }
         #endif
     }
 
@@ -390,85 +395,77 @@ struct ContentView: View {
     /// at the first one the rescanned library can no longer resolve.
     private func restoreNavigationIfNeeded() {
         #if os(iOS)
-        guard !hasRestoredNavigation else { return }
-        hasRestoredNavigation = true
-        let defaults = UserDefaults.standard
-        guard let modeRaw = defaults.string(forKey: Self.navModeKey),
-              let savedMode = BrowseMode(rawValue: modeRaw) else { return }
+            guard !hasRestoredNavigation else { return }
+            hasRestoredNavigation = true
+            let defaults = UserDefaults.standard
+            guard let modeRaw = defaults.string(forKey: Self.navModeKey),
+                  let savedMode = BrowseMode(rawValue: modeRaw) else { return }
 
-        var restoredPath: [LibraryDestination] = []
-        for token in defaults.stringArray(forKey: Self.navPathKey) ?? [] {
-            guard let destination = resolveDestination(token) else { break }
-            restoredPath.append(destination)
-        }
-        var restoredForward = (defaults.stringArray(forKey: Self.navForwardKey) ?? [])
-            .compactMap(resolveDestination)
-            .filter { $0 != .nowPlaying || player.currentTrack != nil }
-        // Launch-time pushes of the now-playing screen are unreliable on
-        // device, so it is never auto-pushed: it moves to the top of the
-        // forward stack instead, one bar tap or forward swipe away.
-        if restoredPath.last == .nowPlaying {
-            restoredPath.removeLast()
-            if player.currentTrack != nil {
-                restoredForward.append(.nowPlaying)
-            }
-        }
-        if player.currentTrack != nil,
-           let originModeRaw = defaults.string(forKey: Self.navOriginModeKey) {
-            var originPath: [LibraryDestination] = []
-            for token in defaults.stringArray(forKey: Self.navOriginPathKey) ?? [] {
+            var restoredPath: [LibraryDestination] = []
+            for token in defaults.stringArray(forKey: Self.navPathKey) ?? [] {
                 guard let destination = resolveDestination(token) else { break }
-                originPath.append(destination)
+                restoredPath.append(destination)
             }
-            playbackOrigin = (BrowseMode(rawValue: originModeRaw), originPath)
-        }
+            var restoredForward = (defaults.stringArray(forKey: Self.navForwardKey) ?? [])
+                .compactMap(resolveDestination)
+                .filter { $0 != .nowPlaying || player.currentTrack != nil }
+            // Launch-time pushes of the now-playing screen are unreliable on
+            // device, so it is never auto-pushed: it moves to the top of the
+            // forward stack instead, one bar tap or forward swipe away.
+            if restoredPath.last == .nowPlaying {
+                restoredPath.removeLast()
+                if player.currentTrack != nil {
+                    restoredForward.append(.nowPlaying)
+                }
+            }
+            if player.currentTrack != nil,
+               let originModeRaw = defaults.string(forKey: Self.navOriginModeKey)
+            {
+                var originPath: [LibraryDestination] = []
+                for token in defaults.stringArray(forKey: Self.navOriginPathKey) ?? [] {
+                    guard let destination = resolveDestination(token) else { break }
+                    originPath.append(destination)
+                }
+                playbackOrigin = (BrowseMode(rawValue: originModeRaw), originPath)
+            }
 
-        savedPaths[savedMode] = []
-        mode = savedMode
-        guard !restoredPath.isEmpty || !restoredForward.isEmpty else { return }
-        // The whole path lands in a single animation-free assignment:
-        // consecutive mutations corrupt NavigationStack even without
-        // animations, but one atomic write materializes cleanly. If the
-        // stack still truncates it, the missing tail joins the forward
-        // stack, so the full chain stays reachable by swiping forward.
-        Task { @MainActor in
-            // Path writes made before the app is active (device launches
-            // are slower than the simulator's) are discarded outright, so
-            // wait for activity first, then retry the atomic assignment
-            // until the stack stops writing truncations back. Checked via
-            // UIApplication because an @Environment scenePhase captured in
-            // this closure would never update.
-            for _ in 0..<50 where UIApplication.shared.applicationState != .active {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            // The whole (player-free) path lands in one animation-free
-            // assignment - instant, and the only launch-time mutation the
-            // device has proven reliable. One spare retry just in case.
-            for attempt in 0..<2 {
-                try? await Task.sleep(for: .milliseconds(attempt == 0 ? 150 : 600))
-                guard mode == savedMode,
-                      path == Array(restoredPath.prefix(path.count)) else {
-                    return
+            savedPaths[savedMode] = []
+            mode = savedMode
+            guard !restoredPath.isEmpty || !restoredForward.isEmpty else { return }
+            // The whole path lands in a single animation-free assignment.
+            Task { @MainActor in
+                // Path writes made before the app is active are discarded outright, so
+                // wait for activity first, then retry the atomic assignment
+                // until the stack stops writing truncations back.
+                for _ in 0 ..< 50 where UIApplication.shared.applicationState != .active {
+                    try? await Task.sleep(for: .milliseconds(100))
                 }
-                guard path.count < restoredPath.count else { break }
-                isRestoringPath = true
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    path = restoredPath
+                for attempt in 0 ..< 2 {
+                    try? await Task.sleep(for: .milliseconds(attempt == 0 ? 150 : 600))
+                    guard mode == savedMode,
+                          path == Array(restoredPath.prefix(path.count))
+                    else {
+                        return
+                    }
+                    guard path.count < restoredPath.count else { break }
+                    isRestoringPath = true
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        path = restoredPath
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(400))
+                guard mode == savedMode else { return }
+                var forward = restoredForward
+                if path.count < restoredPath.count {
+                    forward.append(contentsOf: restoredPath[path.count...].reversed())
+                }
+                if !forward.isEmpty {
+                    forwardStack = forward
+                    saveNavigation()
                 }
             }
-            try? await Task.sleep(for: .milliseconds(400))
-            guard mode == savedMode else { return }
-            var forward = restoredForward
-            if path.count < restoredPath.count {
-                forward.append(contentsOf: restoredPath[path.count...].reversed())
-            }
-            if !forward.isEmpty {
-                forwardStack = forward
-                saveNavigation()
-            }
-        }
         #endif
     }
 
@@ -487,8 +484,8 @@ struct ContentView: View {
     /// the playback origin, then shows the now-playing screen.
     private func playFromList() {
         #if os(iOS)
-        playbackOrigin = (mode, path)
-        saveNavigation()
+            playbackOrigin = (mode, path)
+            saveNavigation()
         #endif
         openNowPlaying()
     }
@@ -498,16 +495,18 @@ struct ContentView: View {
     /// returns there; macOS keeps its popover instead.
     private func openNowPlaying() {
         #if os(iOS)
-        guard path.last != .nowPlaying else { return }
-        let origin = playbackOrigin ?? (mode ?? .allTracks, [])
-        if mode != origin.mode { mode = origin.mode }
-        // Defer the push one cycle so a mode change's path restoration
-        // (onChange) cannot overwrite it.
-        Task { @MainActor in
             guard path.last != .nowPlaying else { return }
-            isRestoringPath = true
-            path = origin.path + [.nowPlaying]
-        }
+            let origin = playbackOrigin ?? (mode ?? .allTracks, [])
+            if mode != origin.mode {
+                mode = origin.mode
+            }
+            // Defer the push one cycle so a mode change's path restoration
+            // (onChange) cannot overwrite it.
+            Task { @MainActor in
+                guard path.last != .nowPlaying else { return }
+                isRestoringPath = true
+                path = origin.path + [.nowPlaying]
+            }
         #endif
     }
 
@@ -541,17 +540,17 @@ struct ContentView: View {
         }
     }
 
-    // On macOS a popover dismisses when clicking anywhere else, which a
-    // sheet there does not; iOS keeps the swipeable sheet.
+    /// On macOS a popover dismisses when clicking anywhere else,
+    /// iOS keeps the swipeable sheet.
     @ViewBuilder
     private var nowPlayingBar: some View {
         #if os(macOS)
-        NowPlayingBar { showingNowPlaying = true }
-            .popover(isPresented: $showingNowPlaying, arrowEdge: .bottom) {
-                NowPlayingView()
-            }
+            NowPlayingBar { showingNowPlaying = true }
+                .popover(isPresented: $showingNowPlaying, arrowEdge: .bottom) {
+                    NowPlayingView()
+                }
         #else
-        NowPlayingBar { openNowPlaying() }
+            NowPlayingBar { openNowPlaying() }
         #endif
     }
 }
@@ -582,56 +581,56 @@ struct OptionsMenu: View {
 }
 
 #if os(iOS)
-// Every screen carries its own options menu so it stays reachable
-// anywhere in the navigation stack.
-private struct OptionsToolbarModifier: ViewModifier {
-    @Environment(MusicLibrary.self) private var library
-    @State private var showingFolderPicker = false
+    /// Every screen carries its own options menu so it stays reachable
+    /// anywhere in the navigation stack.
+    private struct OptionsToolbarModifier: ViewModifier {
+        @Environment(MusicLibrary.self) private var library
+        @State private var showingFolderPicker = false
 
-    func body(content: Content) -> some View {
-        content
-            .toolbar {
-                ToolbarItem {
-                    OptionsMenu(showingFolderPicker: $showingFolderPicker)
+        func body(content: Content) -> some View {
+            content
+                .toolbar {
+                    ToolbarItem {
+                        OptionsMenu(showingFolderPicker: $showingFolderPicker)
+                    }
                 }
-            }
-            .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
-                if case .success(let url) = result {
-                    library.setRootFolder(url)
+                .fileImporter(isPresented: $showingFolderPicker, allowedContentTypes: [.folder]) { result in
+                    if case let .success(url) = result {
+                        library.setRootFolder(url)
+                    }
                 }
-            }
+        }
     }
-}
 #endif
 
 #if os(iOS)
-// The mini bar overlays the window bottom without insetting scroll views
-// inside the split view's columns, so lists reserve its height themselves.
-private struct MiniBarClearanceModifier: ViewModifier {
-    @Environment(PlayerController.self) private var player
+    /// The mini bar overlays the window bottom without insetting scroll views
+    /// inside the split view's columns, so lists reserve its height themselves.
+    private struct MiniBarClearanceModifier: ViewModifier {
+        @Environment(PlayerController.self) private var player
 
-    func body(content: Content) -> some View {
-        content.contentMargins(.bottom, player.currentTrack != nil ? 62 : 0, for: .scrollContent)
+        func body(content: Content) -> some View {
+            content.contentMargins(.bottom, player.currentTrack != nil ? 62 : 0, for: .scrollContent)
+        }
     }
-}
 #endif
 
 extension View {
     @ViewBuilder
     func optionsToolbar() -> some View {
         #if os(iOS)
-        modifier(OptionsToolbarModifier())
+            modifier(OptionsToolbarModifier())
         #else
-        self
+            self
         #endif
     }
 
     @ViewBuilder
     func miniBarClearance() -> some View {
         #if os(iOS)
-        modifier(MiniBarClearanceModifier())
+            modifier(MiniBarClearanceModifier())
         #else
-        self
+            self
         #endif
     }
 }
@@ -644,12 +643,14 @@ struct TrackListView: View {
     var onPlay: () -> Void = {}
     @State private var searchText = ""
 
-    // Titles first; if nothing matches, fall back to the artist so an
-    // artist's name pulls up their songs.
+    /// Titles first; if nothing matches, fall back to the artist so an
+    /// artist's name pulls up their songs.
     private var filteredTracks: [Track] {
         guard !searchText.isEmpty else { return tracks }
         let byTitle = tracks.filter { $0.displayTitle.localizedStandardContains(searchText) }
-        if !byTitle.isEmpty { return byTitle }
+        if !byTitle.isEmpty {
+            return byTitle
+        }
         return tracks.filter { $0.artist?.localizedStandardContains(searchText) == true }
     }
 

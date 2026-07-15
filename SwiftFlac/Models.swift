@@ -1,5 +1,5 @@
-import Foundation
 import AVFoundation
+import Foundation
 
 struct Track: Identifiable, Hashable {
     let url: URL
@@ -10,8 +10,13 @@ struct Track: Identifiable, Hashable {
     var trackNumber: Int?
     var discNumber: Int?
 
-    var id: URL { url }
-    var displayTitle: String { title ?? url.deletingPathExtension().lastPathComponent }
+    var id: URL {
+        url
+    }
+
+    var displayTitle: String {
+        title ?? url.deletingPathExtension().lastPathComponent
+    }
 }
 
 struct Playlist: Identifiable, Hashable {
@@ -19,7 +24,9 @@ struct Playlist: Identifiable, Hashable {
     let folderURL: URL
     let tracks: [Track]
 
-    var id: URL { folderURL }
+    var id: URL {
+        folderURL
+    }
 }
 
 struct Album: Identifiable, Hashable {
@@ -27,14 +34,18 @@ struct Album: Identifiable, Hashable {
     let artist: String?
     let tracks: [Track]
 
-    var id: String { "\(artist ?? "")|\(name)" }
+    var id: String {
+        "\(artist ?? "")|\(name)"
+    }
 }
 
 struct Artist: Identifiable, Hashable {
     let name: String
     let tracks: [Track]
 
-    var id: String { name }
+    var id: String {
+        name
+    }
 }
 
 struct TrackMetadata: Equatable {
@@ -77,21 +88,24 @@ func loadMetadata(from url: URL, includeArtwork: Bool) async -> TrackMetadata {
     if let items = try? await asset.load(.metadata) {
         for identifier in [AVMetadataIdentifier.iTunesMetadataAlbumArtist, .id3MetadataBand] {
             if let item = AVMetadataItem.metadataItems(from: items, filteredByIdentifier: identifier).first,
-               let value = try? await item.load(.stringValue) {
+               let value = try? await item.load(.stringValue)
+            {
                 metadata.albumArtist = value
                 break
             }
         }
         for identifier in [AVMetadataIdentifier.iTunesMetadataTrackNumber, .id3MetadataTrackNumber] {
             if let item = AVMetadataItem.metadataItems(from: items, filteredByIdentifier: identifier).first,
-               let value = await loadNumber(from: item) {
+               let value = await loadNumber(from: item)
+            {
                 metadata.trackNumber = value
                 break
             }
         }
         for identifier in [AVMetadataIdentifier.iTunesMetadataDiscNumber, .id3MetadataPartOfASet] {
             if let item = AVMetadataItem.metadataItems(from: items, filteredByIdentifier: identifier).first,
-               let value = await loadNumber(from: item) {
+               let value = await loadNumber(from: item)
+            {
                 metadata.discNumber = value
                 break
             }
@@ -117,7 +131,8 @@ private func loadNumber(from item: AVMetadataItem) async -> Int? {
         return number.intValue
     }
     if let string = try? await item.load(.stringValue),
-       let leading = string.split(separator: "/").first, let value = Int(leading) {
+       let leading = string.split(separator: "/").first, let value = Int(leading)
+    {
         return value
     }
     if let data = try? await item.load(.dataValue), data.count >= 4 {

@@ -86,9 +86,9 @@ final class MusicLibrary {
     func setRootFolder(_ url: URL) {
         _ = url.startAccessingSecurityScopedResource()
         #if os(macOS)
-        let bookmark = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            let bookmark = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
         #else
-        let bookmark = try? url.bookmarkData()
+            let bookmark = try? url.bookmarkData()
         #endif
         UserDefaults.standard.set(bookmark, forKey: Self.bookmarkKey)
         rootURL = url
@@ -167,9 +167,9 @@ final class MusicLibrary {
         if let data = UserDefaults.standard.data(forKey: Self.bookmarkKey) {
             var stale = false
             #if os(macOS)
-            let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &stale)
+                let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &stale)
             #else
-            let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale)
+                let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale)
             #endif
             if let url {
                 _ = url.startAccessingSecurityScopedResource()
@@ -178,9 +178,9 @@ final class MusicLibrary {
             }
         }
         #if os(iOS)
-        // Default to the app's Documents folder so music can be dropped in
-        // via Finder/Files file sharing without any setup.
-        rootURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            // Default to the app's Documents folder so music can be dropped in
+            // via Finder/Files file sharing without any setup.
+            rootURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         #endif
     }
 }
@@ -248,7 +248,8 @@ private enum LibraryScanner {
             let key = "\(title)|\(track.artist ?? "")|\(track.album ?? "")".lowercased()
             if let index = indexForKey[key] {
                 if track.url.pathExtension.lowercased() == "flac",
-                   result[index].url.pathExtension.lowercased() != "flac" {
+                   result[index].url.pathExtension.lowercased() != "flac"
+                {
                     result[index] = track
                 }
             } else {
@@ -311,7 +312,9 @@ private enum LibraryScanner {
             let sorted = group.sorted { lhs, rhs in
                 let left = (lhs.discNumber ?? 1, lhs.trackNumber ?? Int.max)
                 let right = (rhs.discNumber ?? 1, rhs.trackNumber ?? Int.max)
-                if left != right { return left < right }
+                if left != right {
+                    return left < right
+                }
                 return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
             }
             return Album(name: group[0].album ?? "Unknown Album", artist: artist, tracks: sorted)

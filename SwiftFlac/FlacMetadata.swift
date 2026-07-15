@@ -17,22 +17,30 @@ enum FlacMetadata {
             let blockType = header[0] & 0x7F
             let length = Int(header[1]) << 16 | Int(header[2]) << 8 | Int(header[3])
             switch blockType {
-            case 4:  // VORBIS_COMMENT
+            case 4: // VORBIS_COMMENT
                 guard let block = try? file.read(upToCount: length), block.count == length else { break loop }
                 parseVorbisComments(block, into: &metadata)
-            case 6 where readArtwork:  // PICTURE
+            case 6 where readArtwork: // PICTURE
                 guard let block = try? file.read(upToCount: length), block.count == length else { break loop }
                 if let picture = parsePicture(block) {
-                    if picture.type == 3 { metadata.artworkData = picture.data }  // front cover wins
-                    else if fallbackArtwork == nil { fallbackArtwork = picture.data }
+                    if picture.type == 3 {
+                        metadata.artworkData = picture.data
+                    } // front cover wins
+                    else if fallbackArtwork == nil {
+                        fallbackArtwork = picture.data
+                    }
                 }
             default:
                 guard let offset = try? file.offset(),
                       (try? file.seek(toOffset: offset + UInt64(length))) != nil else { break loop }
             }
-            if isLast { break }
+            if isLast {
+                break
+            }
         }
-        if metadata.artworkData == nil { metadata.artworkData = fallbackArtwork }
+        if metadata.artworkData == nil {
+            metadata.artworkData = fallbackArtwork
+        }
         return metadata
     }
 
@@ -48,10 +56,10 @@ enum FlacMetadata {
         guard let vendorLength = readLE32(), cursor + vendorLength <= block.count else { return }
         cursor += vendorLength
         guard let commentCount = readLE32() else { return }
-        for _ in 0..<commentCount {
+        for _ in 0 ..< commentCount {
             guard let length = readLE32(), cursor + length <= block.count else { return }
             defer { cursor += length }
-            guard let comment = String(data: block[cursor..<(cursor + length)], encoding: .utf8),
+            guard let comment = String(data: block[cursor ..< (cursor + length)], encoding: .utf8),
                   let separator = comment.firstIndex(of: "=") else { continue }
             let value = String(comment[comment.index(after: separator)...])
             guard !value.isEmpty else { continue }
@@ -76,7 +84,7 @@ enum FlacMetadata {
         var cursor = 0
         func readUInt32() -> UInt32? {
             guard cursor + 4 <= block.count else { return nil }
-            let value = block[cursor..<(cursor + 4)].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            let value = block[cursor ..< (cursor + 4)].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
             cursor += 4
             return value
         }
@@ -88,10 +96,10 @@ enum FlacMetadata {
         guard let pictureType = readUInt32(),
               let mimeLength = readUInt32(), skip(Int(mimeLength)),
               let descriptionLength = readUInt32(), skip(Int(descriptionLength)),
-              skip(16),  // width, height, colour depth, palette size
+              skip(16), // width, height, colour depth, palette size
               let dataLength = readUInt32(),
               cursor + Int(dataLength) <= block.count
         else { return nil }
-        return (pictureType, block.subdata(in: cursor..<(cursor + Int(dataLength))))
+        return (pictureType, block.subdata(in: cursor ..< (cursor + Int(dataLength))))
     }
 }

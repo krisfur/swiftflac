@@ -2,9 +2,9 @@ import AVFoundation
 import MediaPlayer
 import Observation
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #else
-import AppKit
+    import AppKit
 #endif
 
 enum RepeatMode: String {
@@ -24,8 +24,11 @@ final class PlayerController {
     private(set) var duration: TimeInterval = 0
 
     private let player = AVPlayer()
-    // The macOS route picker needs the player reference to offer AirPlay.
-    var routePickerPlayer: AVPlayer { player }
+    /// The macOS route picker needs the player reference to offer AirPlay.
+    var routePickerPlayer: AVPlayer {
+        player
+    }
+
     private var originalQueue: [Track] = []
     private var timeObserver: Any?
     private var isSeeking = false
@@ -55,32 +58,34 @@ final class PlayerController {
         return queue[currentIndex]
     }
 
-    var displayTitle: String { nowPlaying.title ?? currentTrack?.displayTitle ?? "" }
+    var displayTitle: String {
+        nowPlaying.title ?? currentTrack?.displayTitle ?? ""
+    }
 
     init() {
         isShuffling = UserDefaults.standard.bool(forKey: Self.shuffleKey)
         repeatMode = UserDefaults.standard.string(forKey: Self.repeatKey)
             .flatMap(RepeatMode.init(rawValue:)) ?? .off
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-        try? AVAudioSession.sharedInstance().setActive(true)
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try? AVAudioSession.sharedInstance().setActive(true)
         #endif
         configureRemoteCommands()
         #if os(macOS)
-        // Focused lists swallow bare Space (scroll page-down) before menu
-        // shortcuts see it, so play/pause is handled app-wide here instead.
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            MainActor.assumeIsolated {
-                guard let self,
-                      event.keyCode == 49,  // space
-                      event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
-                      !(NSApp.keyWindow?.firstResponder is NSText),
-                      self.currentTrack != nil
-                else { return event }
-                self.togglePlayPause()
-                return nil
+            // Focused lists swallow bare Space (scroll page-down) before menu
+            // shortcuts see it, so play/pause is handled app-wide here instead.
+            NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          event.keyCode == 49, // space
+                          event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+                          !(NSApp.keyWindow?.firstResponder is NSText),
+                          self.currentTrack != nil
+                    else { return event }
+                    self.togglePlayPause()
+                    return nil
+                }
             }
-        }
         #endif
 
         timeObserver = player.addPeriodicTimeObserver(
@@ -186,10 +191,8 @@ final class PlayerController {
 
     func seek(to time: TimeInterval) {
         guard player.currentItem != nil else { return }
-        // Scrubbing into the last second means "done with this song": jump
-        // straight to the end-of-track behaviour instead of making the
-        // decoder grind to the tail (slow for FLAC, and landing exactly on
-        // the end can stall without firing the finished notification).
+        // Scrubbing into the last second means jump straight to the
+        // end-of-track behaviour.
         if duration > 0, time >= duration - 1 {
             trackFinished()
             return
@@ -343,7 +346,7 @@ final class PlayerController {
             // AirPlay receivers read metadata from the item itself, not
             // from MPNowPlayingInfoCenter. (iOS-only API.)
             #if os(iOS)
-            item.externalMetadata = externalMetadata(for: track)
+                item.externalMetadata = externalMetadata(for: track)
             #endif
         }
     }
@@ -369,13 +372,17 @@ final class PlayerController {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                if self?.isPlaying == false { self?.togglePlayPause() }
+                if self?.isPlaying == false {
+                    self?.togglePlayPause()
+                }
             }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                if self?.isPlaying == true { self?.togglePlayPause() }
+                if self?.isPlaying == true {
+                    self?.togglePlayPause()
+                }
             }
             return .success
         }
@@ -409,16 +416,20 @@ final class PlayerController {
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
         ]
-        if let artist = nowPlaying.artist { info[MPMediaItemPropertyArtist] = artist }
-        if let album = nowPlaying.album { info[MPMediaItemPropertyAlbumTitle] = album }
+        if let artist = nowPlaying.artist {
+            info[MPMediaItemPropertyArtist] = artist
+        }
+        if let album = nowPlaying.album {
+            info[MPMediaItemPropertyAlbumTitle] = album
+        }
         #if canImport(UIKit)
-        if let data = nowPlaying.artworkData, let image = UIImage(data: data) {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-        }
+            if let data = nowPlaying.artworkData, let image = UIImage(data: data) {
+                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            }
         #else
-        if let data = nowPlaying.artworkData, let image = NSImage(data: data) {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-        }
+            if let data = nowPlaying.artworkData, let image = NSImage(data: data) {
+                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            }
         #endif
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
