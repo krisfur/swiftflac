@@ -34,6 +34,9 @@ final class PlayerController {
     private var isSeeking = false
     private var statusObservation: NSKeyValueObservation?
     private var consecutiveFailures = 0
+    #if os(iOS)
+        private var resumeAfterInterruption = false
+    #endif
 
     private static let shuffleKey = "playerShuffle"
     private static let repeatKey = "playerRepeatMode"
@@ -124,6 +127,53 @@ final class PlayerController {
                 self.currentTrackFailed()
             }
         }
+        #if os(iOS)
+            // Another app taking the audio session pauses the player
+            NotificationCenter.default.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] notification in
+                guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+                let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                let shouldResume = AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
+                MainActor.assumeIsolated {
+                    self?.handleInterruption(began: type == .began, shouldResume: shouldResume)
+                }
+            }
+        #endif
+    }
+
+    #if os(iOS)
+        private func handleInterruption(began: Bool, shouldResume: Bool) {
+            if began {
+                guard isPlaying else { return }
+                resumeAfterInterruption = true
+                player.pause()
+                isPlaying = false
+                updateNowPlayingInfo()
+                saveSession()
+            } else {
+                let resume = resumeAfterInterruption && shouldResume
+                resumeAfterInterruption = false
+                // Interruptions that end without shouldResume (another app
+                // took over as the primary audio source) stay paused.
+                guard resume, currentTrack != nil else { return }
+                activateAudioSession()
+                player.play()
+                isPlaying = true
+                updateNowPlayingInfo()
+            }
+        }
+    #endif
+
+    /// Reclaims the audio session before playing; it gets deactivated
+    /// whenever another app interrupts
+    private func activateAudioSession() {
+        #if os(iOS)
+            try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
     }
 
     func play(_ track: Track, in tracks: [Track]) {
@@ -169,6 +219,7 @@ final class PlayerController {
         if isPlaying {
             player.pause()
         } else {
+            activateAudioSession()
             player.play()
         }
         isPlaying.toggle()
@@ -319,6 +370,7 @@ final class PlayerController {
                 )
             }
         } else {
+            activateAudioSession()
             player.play()
             isPlaying = true
         }
