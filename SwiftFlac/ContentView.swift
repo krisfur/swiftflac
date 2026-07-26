@@ -765,6 +765,8 @@ struct TrackRow: View {
                             .foregroundStyle(.white)
                     }
                 }
+                .accessibilityHidden(!isPlaying)
+                .accessibilityLabel("Now Playing")
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.displayTitle)
                     .foregroundStyle(isPlaying ? Color.accentColor : Color.primary)

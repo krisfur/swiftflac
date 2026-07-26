@@ -49,6 +49,7 @@ struct NowPlayingBar: View {
                     Image(systemName: "backward.fill")
                         .font(.body)
                 }
+                .accessibilityLabel("Previous Track")
                 Button {
                     player.togglePlayPause()
                 } label: {
@@ -56,12 +57,14 @@ struct NowPlayingBar: View {
                         .font(.title3)
                         .frame(width: 24)
                 }
+                .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
                 Button {
                     player.next()
                 } label: {
                     Image(systemName: "forward.fill")
                         .font(.body)
                 }
+                .accessibilityLabel("Next Track")
                 RepeatButton(compact: true)
             }
             .buttonStyle(.plain)
@@ -100,6 +103,8 @@ struct ShuffleButton: View {
             ToggleIcon(systemName: "shuffle", active: player.isShuffling, compact: compact)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Shuffle")
+        .accessibilityValue(player.isShuffling ? "On" : "Off")
     }
 }
 
@@ -118,6 +123,16 @@ struct RepeatButton: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Repeat")
+        .accessibilityValue(repeatValue)
+    }
+
+    private var repeatValue: String {
+        switch player.repeatMode {
+        case .off: "Off"
+        case .all: "All Tracks"
+        case .one: "This Track"
+        }
     }
 }
 
@@ -301,6 +316,7 @@ struct NowPlayingView: View {
                 Image(systemName: "backward.fill")
                     .font(.title)
             }
+            .accessibilityLabel("Previous Track")
             Button {
                 player.togglePlayPause()
             } label: {
@@ -308,12 +324,14 @@ struct NowPlayingView: View {
                     .font(.system(size: 44))
                     .frame(width: 52)
             }
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
             Button {
                 player.next()
             } label: {
                 Image(systemName: "forward.fill")
                     .font(.title)
             }
+            .accessibilityLabel("Next Track")
             RepeatButton()
         }
         .buttonStyle(.plain)
