@@ -68,6 +68,7 @@ final class MusicLibrary {
     private(set) var contentVersion = 0
 
     private var scanGeneration = 0
+    private var lastScanFinished = Date.distantPast
 
     private static let bookmarkKey = "libraryFolderBookmark"
 
@@ -95,6 +96,15 @@ final class MusicLibrary {
         rescan()
     }
 
+    /// Music can arrive while the app is backgrounded - dropped in through the
+    /// Files app or Finder file sharing, or AirDropped - so coming back to the
+    /// foreground picks it up instead of waiting for a relaunch. Throttled so
+    /// a quick app switch doesn't walk the library twice.
+    func refreshIfNeeded() {
+        guard !isScanning, Date().timeIntervalSince(lastScanFinished) > 2 else { return }
+        rescan()
+    }
+
     func rescan() {
         scanGeneration += 1
         let generation = scanGeneration
@@ -115,6 +125,7 @@ final class MusicLibrary {
     private func apply(_ content: LibraryContent) {
         applyContent(content)
         isScanning = false
+        lastScanFinished = Date()
         saveCache(content.playlists)
     }
 

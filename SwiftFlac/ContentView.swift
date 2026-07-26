@@ -523,7 +523,13 @@ struct ContentView: View {
                 ContentUnavailableView {
                     Label("No Music", systemImage: "music.note.list")
                 } description: {
-                    Text("Choose a folder with music in it. Each subfolder becomes a playlist.")
+                    #if os(iOS)
+                        // The Files route comes first: it needs no picker, and
+                        // it is how music usually gets onto the device.
+                        Text("Copy music into the SwiftFlac folder in the Files app, or choose a folder below. Each subfolder becomes a playlist.")
+                    #else
+                        Text("Choose a folder with music in it. Each subfolder becomes a playlist.")
+                    #endif
                 } actions: {
                     Button("Choose Folder") { showingFolderPicker = true }
                 }

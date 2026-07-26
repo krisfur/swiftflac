@@ -4,12 +4,18 @@ import SwiftUI
 struct SwiftFlacApp: App {
     @State private var library = MusicLibrary()
     @State private var player = PlayerController()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(library)
                 .environment(player)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                library.refreshIfNeeded()
+            }
         }
         #if os(macOS)
         .defaultSize(width: 900, height: 620)
