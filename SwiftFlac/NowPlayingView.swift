@@ -145,6 +145,8 @@ struct NowPlayingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.libraryNavigate) private var libraryNavigate
     @State private var dragFraction: Double?
+    @State private var artworkMenu = GoToMenuController()
+    @State private var infoMenu = GoToMenuController()
 
     private var currentAlbum: Album? {
         guard let track = player.currentTrack else { return nil }
@@ -213,33 +215,14 @@ struct NowPlayingView: View {
         let side = landscape
             ? min(size.height - 64, size.width * 0.45, 320)
             : min(size.width - 64, size.height - 280, 320)
-        return Menu {
-            goToMenuItems
-        } label: {
+        return goToTarget(artworkMenu) {
             ArtworkView(data: player.nowPlaying.artworkData, size: max(side, 120), cornerRadius: 12)
                 .shadow(radius: 10)
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var goToMenuItems: some View {
-        if let album = currentAlbum {
-            Button("Go to Album", systemImage: "square.stack") {
-                libraryNavigate(.album(album))
-            }
-        }
-        if let artist = currentArtist {
-            Button("Go to Artist", systemImage: "music.mic") {
-                libraryNavigate(.artist(artist))
-            }
         }
     }
 
     private var info: some View {
-        Menu {
-            goToMenuItems
-        } label: {
+        goToTarget(infoMenu) {
             VStack(spacing: 4) {
                 Text(player.displayTitle)
                     .font(.title3.weight(.semibold))
@@ -249,8 +232,39 @@ struct NowPlayingView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .buttonStyle(.plain)
         .padding(.horizontal)
+    }
+
+    /// The album/artist jumps, opened by tapping anywhere on the label.
+    @ViewBuilder
+    private func goToTarget(_ controller: GoToMenuController, @ViewBuilder label: () -> some View) -> some View {
+        #if os(macOS)
+            Menu {
+                ForEach(Array(goToItems.enumerated()), id: \.offset) { _, item in
+                    Button(item.title, systemImage: item.systemImage, action: item.action)
+                }
+            } label: {
+                label()
+            }
+            .buttonStyle(.plain)
+        #else
+            label().goToMenu(controller, items: goToItems)
+        #endif
+    }
+
+    private var goToItems: [GoToItem] {
+        var items: [GoToItem] = []
+        if let album = currentAlbum {
+            items.append(GoToItem(title: "Go to Album", systemImage: "square.stack") {
+                libraryNavigate(.album(album))
+            })
+        }
+        if let artist = currentArtist {
+            items.append(GoToItem(title: "Go to Artist", systemImage: "music.mic") {
+                libraryNavigate(.artist(artist))
+            })
+        }
+        return items
     }
 
     /// Custom scrubber instead of Slider: the iOS 26 system slider opens
@@ -376,6 +390,113 @@ struct ScrubberBar: View {
         .frame(height: 28)
     }
 }
+
+/// One entry in the go-to menu.
+struct GoToItem {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+}
+
+/// Opens the menu owned by a `GoToMenuAnchor`. Unused on macOS, which can use
+/// a plain SwiftUI Menu.
+final class GoToMenuController {
+    #if os(iOS)
+        weak var button: UIButton?
+
+        func open() {
+            if #available(iOS 17.4, *) {
+                button?.performPrimaryAction()
+            }
+        }
+    #endif
+}
+
+#if os(iOS)
+    /// A hidden UIButton that exists purely to be the menu's anchor rect.
+    ///
+    /// SwiftUI's Menu offers no control over where its popup lands: it centres
+    /// on the label and pins to the label's top edge, so making a 320pt album
+    /// cover the label drops the menu inside the cover's own top corner. UIKit
+    /// anchors to the button's frame, so a small button positioned where the
+    /// menu belongs places it exactly, while the cover stays fully tappable
+    /// through a separate transparent tap area.
+    private struct GoToMenuAnchor: UIViewRepresentable {
+        let controller: GoToMenuController
+        let items: [GoToItem]
+
+        func makeUIView(context: Context) -> UIButton {
+            let button = UIButton(type: .custom)
+            button.showsMenuAsPrimaryAction = true
+            controller.button = button
+            return button
+        }
+
+        func updateUIView(_ button: UIButton, context: Context) {
+            controller.button = button
+            button.menu = UIMenu(children: items.map { item in
+                UIAction(title: item.title, image: UIImage(systemName: item.systemImage)) { _ in
+                    item.action()
+                }
+            })
+        }
+    }
+
+    /// UIKit hangs a button's menu down and to the left of the button's
+    /// top-trailing corner, with a small gap. Sizing the menu the way UIKit
+    /// does lets the anchor be offset by half of it, which lands the menu
+    /// itself dead centre on whatever it is attached to.
+    private enum MenuMetrics {
+        static let rowHeight: CGFloat = 42
+        /// Icon column plus the leading/trailing margins around a row's title.
+        static let rowChrome: CGFloat = 128
+        static let gap: CGFloat = 10
+
+        static func size(of items: [GoToItem]) -> CGSize {
+            let font = UIFont.preferredFont(forTextStyle: .body)
+            let titleWidth = items
+                .map { ($0.title as NSString).size(withAttributes: [.font: font]).width }
+                .max() ?? 0
+            return CGSize(
+                width: titleWidth + rowChrome,
+                height: CGFloat(items.count) * rowHeight
+            )
+        }
+    }
+
+    extension View {
+        /// Makes the whole of this view open `items` as a system menu, centred
+        /// on the view.
+        ///
+        /// Opening the menu programmatically needs iOS 17.4; below that it
+        /// falls back to a plain Menu and UIKit's own placement.
+        @ViewBuilder
+        func goToMenu(_ controller: GoToMenuController, items: [GoToItem]) -> some View {
+            let menu = MenuMetrics.size(of: items)
+            if #available(iOS 17.4, *) {
+                overlay(alignment: .center) {
+                    GoToMenuAnchor(controller: controller, items: items)
+                        .frame(width: menu.width, height: menu.height)
+                }
+                .overlay {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { controller.open() }
+                }
+            } else {
+                overlay {
+                    Menu {
+                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                            Button(item.title, systemImage: item.systemImage, action: item.action)
+                        }
+                    } label: {
+                        Color.clear.contentShape(Rectangle())
+                    }
+                }
+            }
+        }
+    }
+#endif
 
 struct ArtworkView: View {
     let data: Data?
