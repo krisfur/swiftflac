@@ -1,7 +1,11 @@
-"""Generates a short, gentle arpeggio as a 16-bit mono WAV, stdlib only."""
+"""Generates a short, gentle arpeggio as a 16-bit mono WAV, stdlib only.
+
+Usage: python3 sample-tone.py <output.wav>
+"""
 
 import math
 import struct
+import sys
 import wave
 
 RATE = 44100
@@ -35,7 +39,9 @@ def samples() -> bytes:
 
 
 def main() -> None:
-    with wave.open("tone.wav", "wb") as out:
+    if len(sys.argv) != 2:
+        sys.exit("usage: sample-tone.py <output.wav>")
+    with wave.open(sys.argv[1], "wb") as out:
         out.setnchannels(1)
         out.setsampwidth(2)
         out.setframerate(RATE)
