@@ -68,6 +68,8 @@ final class MusicLibrary {
     private(set) var contentVersion = 0
 
     private var scanGeneration = 0
+    private var lastScanFinished = Date.distantPast
+    private var lastFingerprint: Int?
 
     private static let bookmarkKey = "libraryFolderBookmark"
 
@@ -95,6 +97,29 @@ final class MusicLibrary {
         rescan()
     }
 
+    /// Music can arrive while the app is backgrounded - dropped in through the
+    /// Files app or Finder file sharing, or AirDropped - so coming back to the
+    /// foreground picks it up instead of waiting for a relaunch.
+    ///
+    /// A full scan reads the tag header out of every file, which is far too
+    /// much work to repeat on every app switch, so the tree is fingerprinted
+    /// first and the scan only runs when that changed. Throttled as well, so
+    /// flicking between apps doesn't walk the tree repeatedly.
+    func refreshIfNeeded() {
+        guard !isScanning,
+              Date().timeIntervalSince(lastScanFinished) > 2,
+              let rootURL else { return }
+        let generation = scanGeneration
+        Task.detached(priority: .utility) {
+            let fingerprint = LibraryScanner.fingerprint(root: rootURL)
+            await MainActor.run {
+                guard generation == self.scanGeneration, !self.isScanning else { return }
+                guard fingerprint != self.lastFingerprint else { return }
+                self.rescan()
+            }
+        }
+    }
+
     func rescan() {
         scanGeneration += 1
         let generation = scanGeneration
@@ -105,8 +130,10 @@ final class MusicLibrary {
         isScanning = true
         Task.detached(priority: .userInitiated) {
             let content = await LibraryScanner.scan(root: rootURL)
+            let fingerprint = LibraryScanner.fingerprint(root: rootURL)
             await MainActor.run {
                 guard generation == self.scanGeneration else { return }
+                self.lastFingerprint = fingerprint
                 self.apply(content)
             }
         }
@@ -115,6 +142,7 @@ final class MusicLibrary {
     private func apply(_ content: LibraryContent) {
         applyContent(content)
         isScanning = false
+        lastScanFinished = Date()
         saveCache(content.playlists)
     }
 
@@ -217,6 +245,37 @@ private enum LibraryScanner {
         }
 
         return content(from: playlists)
+    }
+
+    /// A cheap signature of the library tree: the path and size of every audio
+    /// file under the root. Enumerating costs a fraction of a scan, which opens
+    /// every file to read its tags, so this is what a foreground refresh checks
+    /// before deciding to do the real work.
+    ///
+    /// Sizes catch a file being replaced in place; file dates are deliberately
+    /// not used, since reading them would drag a required-reason API (and its
+    /// privacy manifest entry) in for no real gain. Editing tags without any
+    /// size change still needs a manual rescan.
+    static func fingerprint(root: URL) -> Int {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return 0 }
+
+        var entries: [String] = []
+        for case let url as URL in enumerator where isAudioFile(url) {
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            entries.append("\(url.path)|\(size)")
+        }
+        // Enumeration order is not guaranteed, so sort before hashing.
+        entries.sort()
+        var hasher = Hasher()
+        for entry in entries {
+            hasher.combine(entry)
+        }
+        return hasher.finalize()
     }
 
     /// Builds the grouped views over a set of playlists; shared between a
