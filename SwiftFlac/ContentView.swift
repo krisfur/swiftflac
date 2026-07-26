@@ -563,6 +563,7 @@ struct OptionsMenu: View {
     @Environment(MusicLibrary.self) private var library
     @AppStorage("appearance") private var appearanceRaw = Appearance.system.rawValue
     @Binding var showingFolderPicker: Bool
+    @State private var showingAbout = false
 
     var body: some View {
         Menu {
@@ -578,9 +579,66 @@ struct OptionsMenu: View {
                 }
             }
             .pickerStyle(.menu)
+            Divider()
+            Button("About", systemImage: "info.circle") {
+                showingAbout = true
+            }
         } label: {
             Label("Options", systemImage: "ellipsis.circle")
         }
+        .sheet(isPresented: $showingAbout) {
+            AboutView()
+        }
+    }
+}
+
+struct AboutView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private static let repositoryURL = URL(string: "https://github.com/krisfur/swiftflac")!
+
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image("AboutIcon")
+                .resizable()
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+            VStack(spacing: 4) {
+                Text("SwiftFlac")
+                    .font(.title2.weight(.semibold))
+                Text("Version \(version)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 4) {
+                Text("Made by Krzysztof Furman")
+                Text("MIT License")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+
+            Link(destination: Self.repositoryURL) {
+                Label("View on GitHub", systemImage: "link")
+            }
+            .font(.callout)
+
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.defaultAction)
+                .padding(.top, 4)
+        }
+        .multilineTextAlignment(.center)
+        .padding(32)
+        #if os(macOS)
+            .frame(minWidth: 280)
+        #else
+            .presentationDetents([.medium])
+        #endif
     }
 }
 
