@@ -260,7 +260,16 @@ final class PlayerController {
             toleranceBefore: .positiveInfinity,
             toleranceAfter: .zero
         ) { [weak self] _ in
-            Task { @MainActor in self?.isSeeking = false }
+            Task { @MainActor in
+                guard let self else { return }
+                self.isSeeking = false
+                // Republish once the seek lands: the tolerance means the
+                // player can settle before the target, and nothing else
+                // refreshes the lock screen until the next track change.
+                let landed = self.player.currentTime().seconds
+                self.currentTime = landed.isFinite ? landed : target
+                self.updateNowPlayingInfo()
+            }
         }
         updateNowPlayingInfo()
     }
@@ -298,10 +307,21 @@ final class PlayerController {
 
     private func trackFinished() {
         if repeatMode == .one {
-            player.seek(to: .zero)
+            // The seek is async: publishing the reset before it lands leaves
+            // the lock screen stuck at the end of the track, so republish from
+            // the completion handler once the player really is back at zero.
+            isSeeking = true
+            currentTime = 0
+            player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.isSeeking = false
+                    self.currentTime = 0
+                    self.updateNowPlayingInfo()
+                }
+            }
             player.play()
             isPlaying = true
-            currentTime = 0
             updateNowPlayingInfo()
         } else {
             advance(by: 1)
