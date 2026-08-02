@@ -6,8 +6,6 @@
 
 ![Swift](https://img.shields.io/badge/Swift-F05138?style=flat&logo=swift&logoColor=white)
 
-> ⚠️ very much a work in progress
-
 Minimalist local music player for iOS, iPadOS, and macOS. Built with `SwiftUI` and first-party Apple frameworks. Plays FLAC, MP3, M4A/AAC, ALAC, WAV, and AIFF.
 
 > FLAC remains the primary supported format
