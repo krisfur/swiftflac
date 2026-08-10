@@ -9,6 +9,29 @@ import SwiftUI
     }
 #endif
 
+extension String {
+    /// Typographic punctuation the keyboards substitute for its ASCII
+    /// equivalent. Tags are written either way, so both sides of a search
+    /// are folded before comparing.
+    private static let punctuationFolds: [Character: Character] = [
+        "\u{2018}": "'", "\u{2019}": "'", "\u{02BC}": "'", "\u{2032}": "'", "\u{00B4}": "'", "`": "'",
+        "\u{201C}": "\"", "\u{201D}": "\"", "\u{201E}": "\"", "\u{2033}": "\"",
+        "\u{2010}": "-", "\u{2011}": "-", "\u{2012}": "-", "\u{2013}": "-", "\u{2014}": "-", "\u{2015}": "-",
+    ]
+
+    private var foldedPunctuation: String {
+        guard contains(where: { Self.punctuationFolds[$0] != nil }) else { return self }
+        return String(map { Self.punctuationFolds[$0] ?? $0 })
+    }
+
+    /// Case-, diacritic- and punctuation-insensitive substring match.
+    /// `localizedStandardContains` alone treats a curly apostrophe as a
+    /// different character from a straight one.
+    func matchesSearch(_ query: String) -> Bool {
+        foldedPunctuation.localizedStandardContains(query.foldedPunctuation)
+    }
+}
+
 extension View {
     /// Hides the on-screen keyboard as soon as the user scrolls the
     /// content below the search field.
@@ -68,7 +91,7 @@ struct FoldersView: View {
 
     private var filteredPlaylists: [Playlist] {
         guard !searchText.isEmpty else { return library.playlists }
-        return library.playlists.filter { $0.name.localizedStandardContains(searchText) }
+        return library.playlists.filter { $0.name.matchesSearch(searchText) }
     }
 
     var body: some View {
@@ -109,7 +132,7 @@ struct ArtistsView: View {
 
     private var filteredArtists: [Artist] {
         guard !searchText.isEmpty else { return library.artists }
-        return library.artists.filter { $0.name.localizedStandardContains(searchText) }
+        return library.artists.filter { $0.name.matchesSearch(searchText) }
     }
 
     var body: some View {
@@ -154,11 +177,11 @@ struct AlbumsView: View {
     /// an artist's name pulls up their albums.
     private var filteredAlbums: [Album] {
         guard !searchText.isEmpty else { return library.albums }
-        let byName = library.albums.filter { $0.name.localizedStandardContains(searchText) }
+        let byName = library.albums.filter { $0.name.matchesSearch(searchText) }
         if !byName.isEmpty {
             return byName
         }
-        return library.albums.filter { $0.artist?.localizedStandardContains(searchText) == true }
+        return library.albums.filter { $0.artist?.matchesSearch(searchText) == true }
     }
 
     var body: some View {

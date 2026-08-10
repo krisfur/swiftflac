@@ -715,11 +715,11 @@ struct TrackListView: View {
     /// artist's name pulls up their songs.
     private var filteredTracks: [Track] {
         guard !searchText.isEmpty else { return tracks }
-        let byTitle = tracks.filter { $0.displayTitle.localizedStandardContains(searchText) }
+        let byTitle = tracks.filter { $0.displayTitle.matchesSearch(searchText) }
         if !byTitle.isEmpty {
             return byTitle
         }
-        return tracks.filter { $0.artist?.localizedStandardContains(searchText) == true }
+        return tracks.filter { $0.artist?.matchesSearch(searchText) == true }
     }
 
     var body: some View {
