@@ -163,14 +163,17 @@ struct NowPlayingView: View {
     @State private var artworkMenu = GoToMenuController()
     @State private var infoMenu = GoToMenuController()
 
+    /// Matched on tags, the same way the library groups them: the playing
+    /// track is not necessarily one of the deduplicated copies the album and
+    /// artist lists were built from, so it can be absent from their tracks.
     private var currentAlbum: Album? {
         guard let track = player.currentTrack else { return nil }
-        return library.albums.first { $0.tracks.contains(track) }
+        return library.albums.first { $0.tracks.first?.albumKey == track.albumKey }
     }
 
     private var currentArtist: Artist? {
         guard let track = player.currentTrack else { return nil }
-        return library.artists.first { $0.tracks.contains(track) }
+        return library.artists.first { $0.name == track.artistName }
     }
 
     var body: some View {

@@ -1,6 +1,18 @@
 import AVFoundation
 import Foundation
 
+extension URL {
+    /// The same file arrives with different Unicode normalisations depending
+    /// on where the URL came from - a directory scan yields precomposed
+    /// names, rebuilding one from `url.path` yields the decomposed form the
+    /// filesystem stores. `URL` equality and hashing are byte-exact, so a
+    /// track would otherwise compare unequal to itself; `String` equality is
+    /// canonical, which is what hides it. Both forms open the same file.
+    var canonicalFileURL: URL {
+        URL(fileURLWithPath: path.precomposedStringWithCanonicalMapping, isDirectory: hasDirectoryPath)
+    }
+}
+
 struct Track: Identifiable, Hashable {
     let url: URL
     var title: String?
@@ -10,6 +22,24 @@ struct Track: Identifiable, Hashable {
     var trackNumber: Int?
     var discNumber: Int?
 
+    init(
+        url: URL,
+        title: String? = nil,
+        artist: String? = nil,
+        album: String? = nil,
+        albumArtist: String? = nil,
+        trackNumber: Int? = nil,
+        discNumber: Int? = nil
+    ) {
+        self.url = url.canonicalFileURL
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.albumArtist = albumArtist
+        self.trackNumber = trackNumber
+        self.discNumber = discNumber
+    }
+
     var id: URL {
         url
     }
@@ -17,12 +47,30 @@ struct Track: Identifiable, Hashable {
     var displayTitle: String {
         title ?? url.deletingPathExtension().lastPathComponent
     }
+
+    /// Which album this track belongs to, by tags. The album list is built by
+    /// grouping on this, so it is also how a track finds its album again -
+    /// identity will not do, since a track played out of a folder may be a
+    /// duplicate that the album list collapsed away.
+    var albumKey: String {
+        "\(albumArtist ?? artist ?? "")|\(album ?? "")"
+    }
+
+    var artistName: String {
+        artist ?? "Unknown Artist"
+    }
 }
 
 struct Playlist: Identifiable, Hashable {
     let name: String
     let folderURL: URL
     let tracks: [Track]
+
+    init(name: String, folderURL: URL, tracks: [Track]) {
+        self.name = name
+        self.folderURL = folderURL.canonicalFileURL
+        self.tracks = tracks
+    }
 
     var id: URL {
         folderURL

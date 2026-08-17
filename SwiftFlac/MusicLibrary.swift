@@ -359,9 +359,7 @@ private enum LibraryScanner {
     }
 
     private static func albums(from tracks: [Track]) -> [Album] {
-        let groups = Dictionary(grouping: tracks) { track in
-            "\(track.albumArtist ?? track.artist ?? "")|\(track.album ?? "")"
-        }
+        let groups = Dictionary(grouping: tracks, by: \.albumKey)
         return groups.values.map { group in
             let artists = Set(group.compactMap(\.artist))
             let artist = group[0].albumArtist
@@ -382,7 +380,7 @@ private enum LibraryScanner {
     }
 
     private static func artists(from tracks: [Track]) -> [Artist] {
-        Dictionary(grouping: tracks) { $0.artist ?? "Unknown Artist" }
+        Dictionary(grouping: tracks, by: \.artistName)
             .map { name, group in
                 Artist(name: name, tracks: group.sorted {
                     $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending
