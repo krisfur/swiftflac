@@ -298,7 +298,8 @@ struct NowPlayingView: View {
                 libraryNavigate(.artist(artist))
             })
         }
-        return items
+        // Alphabetical by title, so the two places this menu opens from agree.
+        return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     /// Custom scrubber instead of Slider: the iOS 26 system slider opens
@@ -465,6 +466,10 @@ final class GoToMenuController {
         func makeUIView(context: Context) -> UIButton {
             let button = UIButton(type: .custom)
             button.showsMenuAsPrimaryAction = true
+            // A menu with no room below it opens upward, and UIKit reverses
+            // the rows so the first sits nearest the anchor - which flipped
+            // this menu depending on which of the two targets opened it.
+            button.preferredMenuElementOrder = .fixed
             controller.button = button
             return button
         }
