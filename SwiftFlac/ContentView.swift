@@ -757,11 +757,12 @@ struct TrackRow: View {
     let track: Track
     let isPlaying: Bool
     let showsArtist: Bool
-    @State private var artworkData: Data?
+    @Environment(\.displayScale) private var displayScale
+    @State private var artwork: Image?
 
     var body: some View {
         HStack(spacing: 12) {
-            ArtworkView(data: artworkData, size: 40, cornerRadius: 6)
+            ArtworkView(image: artwork, size: 40, cornerRadius: 6)
                 .overlay {
                     if isPlaying {
                         RoundedRectangle(cornerRadius: 6)
@@ -787,7 +788,7 @@ struct TrackRow: View {
             Spacer()
         }
         .task(id: track.url) {
-            artworkData = await ArtworkStore.shared.artwork(for: track)
+            artwork = await ArtworkStore.shared.thumbnail(for: track, maxPixelSize: Int(40 * displayScale))
         }
     }
 }

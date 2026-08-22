@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 #if canImport(UIKit)
     import UIKit
@@ -214,15 +215,19 @@ struct AlbumsView: View {
 
 struct AlbumCell: View {
     let album: Album
-    @State private var artworkData: Data?
+    @Environment(\.displayScale) private var displayScale
+    @State private var artwork: Image?
+
+    /// The widest a cell gets is the grid's 200pt maximum.
+    private static let drawnSize: CGFloat = 200
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Color.clear
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
-                    if let image = artworkImage(from: artworkData) {
-                        image
+                    if let artwork {
+                        artwork
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     } else {
@@ -245,35 +250,83 @@ struct AlbumCell: View {
                 .lineLimit(1)
         }
         .task(id: album.id) {
-            artworkData = await ArtworkStore.shared.artwork(for: album.tracks.first)
+            artwork = await ArtworkStore.shared.thumbnail(
+                for: album.tracks.first,
+                maxPixelSize: Int(Self.drawnSize * displayScale)
+            )
         }
     }
 }
 
-/// Caches embedded artwork so grid cells don't re-read files while scrolling.
+/// Boxes a decoded thumbnail: NSCache needs a class, and the decode happens
+/// off the main actor. Immutable, so handing it across is safe.
+private final class Thumbnail: @unchecked Sendable {
+    let image: CGImage
+    let cost: Int
+
+    init(_ image: CGImage) {
+        self.image = image
+        cost = image.bytesPerRow * image.height
+    }
+}
+
+/// Decodes straight to a thumbnail no larger than `maxPixelSize`, so a 1400px
+/// cover never becomes a full-size bitmap to fill a 40pt row.
+private func downsampled(_ data: Data, maxPixelSize: Int) -> Thumbnail? {
+    let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+    guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+    let options = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCacheImmediately: true,
+        kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+    ] as CFDictionary
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, options).map(Thumbnail.init)
+}
+
+/// Caches embedded artwork so grid cells and rows don't re-read files while
+/// scrolling. Only the downsampled thumbnail is kept - the full cover is
+/// discarded once decoded - and the cache is capped by total pixel cost, so
+/// scrolling a large library cannot grow it without bound.
 @MainActor
 final class ArtworkStore {
     static let shared = ArtworkStore()
 
-    private var cache: [URL: Data] = [:]
+    private let cache = NSCache<NSString, Thumbnail>()
+    /// Tracks with no embedded artwork, so they are not reopened on every
+    /// scroll past. Capped too: a cache is pointless if the list of things
+    /// that missed it is what grows instead.
     private var misses: Set<URL> = []
 
-    func artwork(for track: Track?) async -> Data? {
+    private static let costLimit = 32 * 1024 * 1024
+    private static let missLimit = 4096
+
+    private init() {
+        cache.totalCostLimit = Self.costLimit
+    }
+
+    /// A thumbnail for `track`, decoded to at most `maxPixelSize` on its
+    /// longest side. Callers pass the pixel size they actually draw at.
+    func thumbnail(for track: Track?, maxPixelSize: Int) async -> Image? {
         guard let url = track?.url else { return nil }
-        if let cached = cache[url] {
-            return cached
+        let key = "\(url.path)|\(maxPixelSize)" as NSString
+        if let cached = cache.object(forKey: key) {
+            return Image(decorative: cached.image, scale: 1)
         }
         if misses.contains(url) {
             return nil
         }
-        let data = await Task.detached(priority: .utility) {
-            await loadMetadata(from: url, includeArtwork: true).artworkData
+        let thumbnail = await Task.detached(priority: .utility) { () -> Thumbnail? in
+            guard let data = await loadMetadata(from: url, includeArtwork: true).artworkData else { return nil }
+            return downsampled(data, maxPixelSize: maxPixelSize)
         }.value
-        if let data {
-            cache[url] = data
-        } else {
-            misses.insert(url)
+        guard let thumbnail else {
+            if misses.count < Self.missLimit {
+                misses.insert(url)
+            }
+            return nil
         }
-        return data
+        cache.setObject(thumbnail, forKey: key, cost: thumbnail.cost)
+        return Image(decorative: thumbnail.image, scale: 1)
     }
 }

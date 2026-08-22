@@ -17,6 +17,8 @@ func artworkImage(from data: Data?) -> Image? {
 
 struct NowPlayingBar: View {
     @Environment(PlayerController.self) private var player
+    @Environment(\.displayScale) private var displayScale
+    @State private var artwork: Image?
     let onTap: () -> Void
 
     var body: some View {
@@ -26,7 +28,7 @@ struct NowPlayingBar: View {
                 // Only this leading region opens the full player, so the
                 // transport buttons never race against the tap gesture.
                 HStack(spacing: 14) {
-                    ArtworkView(data: player.nowPlaying.artworkData, size: 40, cornerRadius: 6)
+                    ArtworkView(image: artwork, size: 40, cornerRadius: 6)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(player.displayTitle)
                             .font(.subheadline.weight(.medium))
@@ -72,6 +74,14 @@ struct NowPlayingBar: View {
             .padding(.vertical, 8)
         }
         .background(.regularMaterial)
+        // The bar redraws twice a second as the progress line advances, so
+        // the thumbnail is resolved once per track instead of in body.
+        .task(id: player.currentTrack?.url) {
+            artwork = await ArtworkStore.shared.thumbnail(
+                for: player.currentTrack,
+                maxPixelSize: Int(40 * displayScale)
+            )
+        }
     }
 }
 
@@ -160,6 +170,7 @@ struct NowPlayingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.libraryNavigate) private var libraryNavigate
     @State private var dragFraction: Double?
+    @State private var artwork: Image?
     @State private var artworkMenu = GoToMenuController()
     @State private var infoMenu = GoToMenuController()
 
@@ -208,6 +219,11 @@ struct NowPlayingView: View {
             }
         }
         .background(AppBackground())
+        // Full resolution here - this is the one place artwork is shown big -
+        // but decoded once per track, not on every tick of the scrubber.
+        .task(id: player.nowPlaying.artworkData) {
+            artwork = artworkImage(from: player.nowPlaying.artworkData)
+        }
         #if os(macOS)
             .frame(minWidth: 420, minHeight: 540)
             .overlay(alignment: .topTrailing) {
@@ -234,7 +250,7 @@ struct NowPlayingView: View {
             ? min(size.height - 64, size.width * 0.45, 320)
             : min(size.width - 64, size.height - 280, 320)
         return goToTarget(artworkMenu) {
-            ArtworkView(data: player.nowPlaying.artworkData, size: max(side, 120), cornerRadius: 12)
+            ArtworkView(image: artwork, size: max(side, 120), cornerRadius: 12)
                 .shadow(radius: 10)
         }
     }
@@ -258,7 +274,7 @@ struct NowPlayingView: View {
     private func goToTarget(_ controller: GoToMenuController, @ViewBuilder label: () -> some View) -> some View {
         #if os(macOS)
             Menu {
-                ForEach(Array(goToItems.enumerated()), id: \.offset) { _, item in
+                ForEach(goToItems, id: \.id) { item in
                     Button(item.title, systemImage: item.systemImage, action: item.action)
                 }
             } label: {
@@ -273,16 +289,17 @@ struct NowPlayingView: View {
     private var goToItems: [GoToItem] {
         var items: [GoToItem] = []
         if let album = currentAlbum {
-            items.append(GoToItem(title: "Go to Album", systemImage: "square.stack") {
+            items.append(GoToItem(id: "album|\(album.id)", title: "Go to Album", systemImage: "square.stack") {
                 libraryNavigate(.album(album))
             })
         }
         if let artist = currentArtist {
-            items.append(GoToItem(title: "Go to Artist", systemImage: "music.mic") {
+            items.append(GoToItem(id: "artist|\(artist.name)", title: "Go to Artist", systemImage: "music.mic") {
                 libraryNavigate(.artist(artist))
             })
         }
-        return items
+        // Alphabetical by title, so the two places this menu opens from agree.
+        return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     /// Custom scrubber instead of Slider: the iOS 26 system slider opens
@@ -412,8 +429,10 @@ struct ScrubberBar: View {
     }
 }
 
-/// One entry in the go-to menu.
+/// One entry in the go-to menu. `id` identifies the destination, not the
+/// row, so the menu can tell a genuine change from a redraw.
 struct GoToItem {
+    let id: String
     let title: String
     let systemImage: String
     let action: () -> Void
@@ -446,20 +465,39 @@ final class GoToMenuController {
         let controller: GoToMenuController
         let items: [GoToItem]
 
+        func makeCoordinator() -> Coordinator {
+            Coordinator()
+        }
+
         func makeUIView(context: Context) -> UIButton {
             let button = UIButton(type: .custom)
             button.showsMenuAsPrimaryAction = true
+            // A menu with no room below it opens upward, and UIKit reverses
+            // the rows so the first sits nearest the anchor - which flipped
+            // this menu depending on which of the two targets opened it.
+            button.preferredMenuElementOrder = .fixed
             controller.button = button
             return button
         }
 
         func updateUIView(_ button: UIButton, context: Context) {
             controller.button = button
+            // The now-playing body re-runs twice a second as the scrubber
+            // advances. Replacing a live UIMenu that often makes an open
+            // popup pulse, so it is rebuilt only when the destinations
+            // themselves change.
+            let ids = items.map(\.id)
+            guard ids != context.coordinator.menuIDs else { return }
+            context.coordinator.menuIDs = ids
             button.menu = UIMenu(children: items.map { item in
                 UIAction(title: item.title, image: UIImage(systemName: item.systemImage)) { _ in
                     item.action()
                 }
             })
+        }
+
+        final class Coordinator {
+            var menuIDs: [String] = []
         }
     }
 
@@ -507,7 +545,7 @@ final class GoToMenuController {
             } else {
                 overlay {
                     Menu {
-                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        ForEach(items, id: \.id) { item in
                             Button(item.title, systemImage: item.systemImage, action: item.action)
                         }
                     } label: {
@@ -520,13 +558,24 @@ final class GoToMenuController {
 #endif
 
 struct ArtworkView: View {
-    let data: Data?
+    let image: Image?
     let size: CGFloat
     let cornerRadius: CGFloat
 
+    init(image: Image?, size: CGFloat, cornerRadius: CGFloat) {
+        self.image = image
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+
+    /// Full-resolution path, for artwork already decoded by the caller.
+    init(data: Data?, size: CGFloat, cornerRadius: CGFloat) {
+        self.init(image: artworkImage(from: data), size: size, cornerRadius: cornerRadius)
+    }
+
     var body: some View {
         Group {
-            if let image = artworkImage(from: data) {
+            if let image {
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)

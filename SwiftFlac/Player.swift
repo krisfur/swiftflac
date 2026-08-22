@@ -78,16 +78,22 @@ final class PlayerController {
             // Focused lists swallow bare Space (scroll page-down) before menu
             // shortcuts see it, so play/pause is handled app-wide here instead.
             NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                MainActor.assumeIsolated {
+                // NSEvent is not Sendable, so the two values the handler needs
+                // are read out here rather than letting the event itself cross
+                // into the main-actor block.
+                let keyCode = event.keyCode
+                let modifiers = event.modifierFlags
+                let handled = MainActor.assumeIsolated { () -> Bool in
                     guard let self,
-                          event.keyCode == 49, // space
-                          event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+                          keyCode == 49, // space
+                          modifiers.intersection([.command, .option, .control]).isEmpty,
                           !(NSApp.keyWindow?.firstResponder is NSText),
                           self.currentTrack != nil
-                    else { return event }
+                    else { return false }
                     self.togglePlayPause()
-                    return nil
+                    return true
                 }
+                return handled ? nil : event
             }
         #endif
 
