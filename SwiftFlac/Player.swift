@@ -11,6 +11,22 @@ enum RepeatMode: String {
     case off, all, one
 }
 
+/// Carries the cover into MediaPlayer's artwork handler. That handler runs on
+/// MediaPlayer's own queue, so the closure must not inherit the main-actor
+/// isolation of the code building it; the image is only read there, which both
+/// platforms allow off the main thread.
+private struct DetachedArtwork: @unchecked Sendable {
+    #if canImport(UIKit)
+        let image: UIImage
+    #else
+        let image: NSImage
+    #endif
+
+    var mediaItemArtwork: MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in self.image }
+    }
+}
+
 @MainActor
 @Observable
 final class PlayerController {
@@ -507,11 +523,11 @@ final class PlayerController {
         }
         #if canImport(UIKit)
             if let data = nowPlaying.artworkData, let image = UIImage(data: data) {
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                info[MPMediaItemPropertyArtwork] = DetachedArtwork(image: image).mediaItemArtwork
             }
         #else
             if let data = nowPlaying.artworkData, let image = NSImage(data: data) {
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                info[MPMediaItemPropertyArtwork] = DetachedArtwork(image: image).mediaItemArtwork
             }
         #endif
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
