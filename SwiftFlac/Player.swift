@@ -11,6 +11,22 @@ enum RepeatMode: String {
     case off, all, one
 }
 
+/// Carries the cover into MediaPlayer's artwork handler. That handler runs on
+/// MediaPlayer's own queue, so the closure must not inherit the main-actor
+/// isolation of the code building it; the image is only read there, which both
+/// platforms allow off the main thread.
+private struct DetachedArtwork: @unchecked Sendable {
+    #if canImport(UIKit)
+        let image: UIImage
+    #else
+        let image: NSImage
+    #endif
+
+    var mediaItemArtwork: MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in self.image }
+    }
+}
+
 @MainActor
 @Observable
 final class PlayerController {
@@ -114,10 +130,14 @@ final class PlayerController {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // Notification is not Sendable, so only the identity of the item
+            // that finished crosses to the main actor - which is all the
+            // `item === player.currentItem` check ever needed.
+            let finished = (notification.object as? AVPlayerItem).map(ObjectIdentifier.init)
             Task { @MainActor in
-                guard let self,
-                      let item = notification.object as? AVPlayerItem,
-                      item === self.player.currentItem else { return }
+                guard let self, let finished,
+                      let current = self.player.currentItem,
+                      ObjectIdentifier(current) == finished else { return }
                 self.trackFinished()
             }
         }
@@ -126,10 +146,11 @@ final class PlayerController {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            let failed = (notification.object as? AVPlayerItem).map(ObjectIdentifier.init)
             Task { @MainActor in
-                guard let self,
-                      let item = notification.object as? AVPlayerItem,
-                      item === self.player.currentItem else { return }
+                guard let self, let failed,
+                      let current = self.player.currentItem,
+                      ObjectIdentifier(current) == failed else { return }
                 self.currentTrackFailed()
             }
         }
@@ -502,11 +523,11 @@ final class PlayerController {
         }
         #if canImport(UIKit)
             if let data = nowPlaying.artworkData, let image = UIImage(data: data) {
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                info[MPMediaItemPropertyArtwork] = DetachedArtwork(image: image).mediaItemArtwork
             }
         #else
             if let data = nowPlaying.artworkData, let image = NSImage(data: data) {
-                info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                info[MPMediaItemPropertyArtwork] = DetachedArtwork(image: image).mediaItemArtwork
             }
         #endif
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info

@@ -34,13 +34,17 @@ enum LibraryDestination: Hashable {
 }
 
 /// Lets deeply nested views (e.g. the now-playing screen) push a library
-/// destination onto the detail stack.
+/// destination onto the detail stack. Pushing is a main-actor action, and the
+/// environment carries the closure across isolation boundaries, so it is
+/// declared with both.
+typealias LibraryNavigate = @MainActor @Sendable (LibraryDestination) -> Void
+
 private struct LibraryNavigateKey: EnvironmentKey {
-    static let defaultValue: (LibraryDestination) -> Void = { _ in }
+    static let defaultValue: LibraryNavigate = { _ in }
 }
 
 extension EnvironmentValues {
-    var libraryNavigate: (LibraryDestination) -> Void {
+    var libraryNavigate: LibraryNavigate {
         get { self[LibraryNavigateKey.self] }
         set { self[LibraryNavigateKey.self] = newValue }
     }
