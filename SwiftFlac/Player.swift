@@ -114,10 +114,14 @@ final class PlayerController {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // Notification is not Sendable, so only the identity of the item
+            // that finished crosses to the main actor - which is all the
+            // `item === player.currentItem` check ever needed.
+            let finished = (notification.object as? AVPlayerItem).map(ObjectIdentifier.init)
             Task { @MainActor in
-                guard let self,
-                      let item = notification.object as? AVPlayerItem,
-                      item === self.player.currentItem else { return }
+                guard let self, let finished,
+                      let current = self.player.currentItem,
+                      ObjectIdentifier(current) == finished else { return }
                 self.trackFinished()
             }
         }
@@ -126,10 +130,11 @@ final class PlayerController {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            let failed = (notification.object as? AVPlayerItem).map(ObjectIdentifier.init)
             Task { @MainActor in
-                guard let self,
-                      let item = notification.object as? AVPlayerItem,
-                      item === self.player.currentItem else { return }
+                guard let self, let failed,
+                      let current = self.player.currentItem,
+                      ObjectIdentifier(current) == failed else { return }
                 self.currentTrackFailed()
             }
         }
