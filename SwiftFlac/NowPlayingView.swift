@@ -440,6 +440,7 @@ struct GoToItem {
 
 /// Opens the menu owned by a `GoToMenuAnchor`. Unused on macOS, which can use
 /// a plain SwiftUI Menu.
+@MainActor
 final class GoToMenuController {
     #if os(iOS)
         weak var button: UIButton?
