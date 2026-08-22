@@ -17,6 +17,8 @@ func artworkImage(from data: Data?) -> Image? {
 
 struct NowPlayingBar: View {
     @Environment(PlayerController.self) private var player
+    @Environment(\.displayScale) private var displayScale
+    @State private var artwork: Image?
     let onTap: () -> Void
 
     var body: some View {
@@ -26,7 +28,7 @@ struct NowPlayingBar: View {
                 // Only this leading region opens the full player, so the
                 // transport buttons never race against the tap gesture.
                 HStack(spacing: 14) {
-                    ArtworkView(data: player.nowPlaying.artworkData, size: 40, cornerRadius: 6)
+                    ArtworkView(image: artwork, size: 40, cornerRadius: 6)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(player.displayTitle)
                             .font(.subheadline.weight(.medium))
@@ -72,6 +74,14 @@ struct NowPlayingBar: View {
             .padding(.vertical, 8)
         }
         .background(.regularMaterial)
+        // The bar redraws twice a second as the progress line advances, so
+        // the thumbnail is resolved once per track instead of in body.
+        .task(id: player.currentTrack?.url) {
+            artwork = await ArtworkStore.shared.thumbnail(
+                for: player.currentTrack,
+                maxPixelSize: Int(40 * displayScale)
+            )
+        }
     }
 }
 
@@ -160,6 +170,7 @@ struct NowPlayingView: View {
     @Environment(MusicLibrary.self) private var library
     @Environment(\.libraryNavigate) private var libraryNavigate
     @State private var dragFraction: Double?
+    @State private var artwork: Image?
     @State private var artworkMenu = GoToMenuController()
     @State private var infoMenu = GoToMenuController()
 
@@ -208,6 +219,11 @@ struct NowPlayingView: View {
             }
         }
         .background(AppBackground())
+        // Full resolution here - this is the one place artwork is shown big -
+        // but decoded once per track, not on every tick of the scrubber.
+        .task(id: player.nowPlaying.artworkData) {
+            artwork = artworkImage(from: player.nowPlaying.artworkData)
+        }
         #if os(macOS)
             .frame(minWidth: 420, minHeight: 540)
             .overlay(alignment: .topTrailing) {
@@ -234,7 +250,7 @@ struct NowPlayingView: View {
             ? min(size.height - 64, size.width * 0.45, 320)
             : min(size.width - 64, size.height - 280, 320)
         return goToTarget(artworkMenu) {
-            ArtworkView(data: player.nowPlaying.artworkData, size: max(side, 120), cornerRadius: 12)
+            ArtworkView(image: artwork, size: max(side, 120), cornerRadius: 12)
                 .shadow(radius: 10)
         }
     }
@@ -520,13 +536,24 @@ final class GoToMenuController {
 #endif
 
 struct ArtworkView: View {
-    let data: Data?
+    let image: Image?
     let size: CGFloat
     let cornerRadius: CGFloat
 
+    init(image: Image?, size: CGFloat, cornerRadius: CGFloat) {
+        self.image = image
+        self.size = size
+        self.cornerRadius = cornerRadius
+    }
+
+    /// Full-resolution path, for artwork already decoded by the caller.
+    init(data: Data?, size: CGFloat, cornerRadius: CGFloat) {
+        self.init(image: artworkImage(from: data), size: size, cornerRadius: cornerRadius)
+    }
+
     var body: some View {
         Group {
-            if let image = artworkImage(from: data) {
+            if let image {
                 image
                     .resizable()
                     .aspectRatio(contentMode: .fill)
