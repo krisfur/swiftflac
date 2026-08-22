@@ -274,7 +274,7 @@ struct NowPlayingView: View {
     private func goToTarget(_ controller: GoToMenuController, @ViewBuilder label: () -> some View) -> some View {
         #if os(macOS)
             Menu {
-                ForEach(Array(goToItems.enumerated()), id: \.offset) { _, item in
+                ForEach(goToItems, id: \.id) { item in
                     Button(item.title, systemImage: item.systemImage, action: item.action)
                 }
             } label: {
@@ -289,12 +289,12 @@ struct NowPlayingView: View {
     private var goToItems: [GoToItem] {
         var items: [GoToItem] = []
         if let album = currentAlbum {
-            items.append(GoToItem(title: "Go to Album", systemImage: "square.stack") {
+            items.append(GoToItem(id: "album|\(album.id)", title: "Go to Album", systemImage: "square.stack") {
                 libraryNavigate(.album(album))
             })
         }
         if let artist = currentArtist {
-            items.append(GoToItem(title: "Go to Artist", systemImage: "music.mic") {
+            items.append(GoToItem(id: "artist|\(artist.name)", title: "Go to Artist", systemImage: "music.mic") {
                 libraryNavigate(.artist(artist))
             })
         }
@@ -429,8 +429,10 @@ struct ScrubberBar: View {
     }
 }
 
-/// One entry in the go-to menu.
+/// One entry in the go-to menu. `id` identifies the destination, not the
+/// row, so the menu can tell a genuine change from a redraw.
 struct GoToItem {
+    let id: String
     let title: String
     let systemImage: String
     let action: () -> Void
@@ -463,6 +465,10 @@ final class GoToMenuController {
         let controller: GoToMenuController
         let items: [GoToItem]
 
+        func makeCoordinator() -> Coordinator {
+            Coordinator()
+        }
+
         func makeUIView(context: Context) -> UIButton {
             let button = UIButton(type: .custom)
             button.showsMenuAsPrimaryAction = true
@@ -476,11 +482,22 @@ final class GoToMenuController {
 
         func updateUIView(_ button: UIButton, context: Context) {
             controller.button = button
+            // The now-playing body re-runs twice a second as the scrubber
+            // advances. Replacing a live UIMenu that often makes an open
+            // popup pulse, so it is rebuilt only when the destinations
+            // themselves change.
+            let ids = items.map(\.id)
+            guard ids != context.coordinator.menuIDs else { return }
+            context.coordinator.menuIDs = ids
             button.menu = UIMenu(children: items.map { item in
                 UIAction(title: item.title, image: UIImage(systemName: item.systemImage)) { _ in
                     item.action()
                 }
             })
+        }
+
+        final class Coordinator {
+            var menuIDs: [String] = []
         }
     }
 
@@ -528,7 +545,7 @@ final class GoToMenuController {
             } else {
                 overlay {
                     Menu {
-                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        ForEach(items, id: \.id) { item in
                             Button(item.title, systemImage: item.systemImage, action: item.action)
                         }
                     } label: {
