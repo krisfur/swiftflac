@@ -70,6 +70,10 @@ final class MusicLibrary {
     private var scanGeneration = 0
     private var lastScanFinished = Date.distantPast
     private var lastFingerprint: Int?
+    /// The security-scoped URL access is currently held on, so switching
+    /// root folders releases the old one. Scopes are a limited resource and
+    /// every start needs its matching stop.
+    private var accessedURL: URL?
 
     private static let bookmarkKey = "libraryFolderBookmark"
 
@@ -86,7 +90,7 @@ final class MusicLibrary {
 
     /// Points the library at a new root folder and persists access to it.
     func setRootFolder(_ url: URL) {
-        _ = url.startAccessingSecurityScopedResource()
+        beginAccess(to: url)
         #if os(macOS)
             let bookmark = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
         #else
@@ -191,6 +195,15 @@ final class MusicLibrary {
         }
     }
 
+    /// Takes security-scoped access to `url`, releasing whatever was held
+    /// before. Only a successful start is recorded, since stopping a scope
+    /// that never started is itself a bug.
+    private func beginAccess(to url: URL) {
+        guard accessedURL != url else { return }
+        accessedURL?.stopAccessingSecurityScopedResource()
+        accessedURL = url.startAccessingSecurityScopedResource() ? url : nil
+    }
+
     private func restoreRoot() {
         if let data = UserDefaults.standard.data(forKey: Self.bookmarkKey) {
             var stale = false
@@ -200,7 +213,7 @@ final class MusicLibrary {
                 let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale)
             #endif
             if let url {
-                _ = url.startAccessingSecurityScopedResource()
+                beginAccess(to: url)
                 rootURL = url
                 return
             }
