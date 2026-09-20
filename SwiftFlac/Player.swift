@@ -1,6 +1,7 @@
 import AVFoundation
 import MediaPlayer
 import Observation
+import OSLog
 #if canImport(UIKit)
     import UIKit
 #else
@@ -52,6 +53,8 @@ final class PlayerController {
     private var consecutiveFailures = 0
     #if os(iOS)
         private var resumeAfterInterruption = false
+        private let playbackActivation = PlaybackActivation(activate: PlaybackAudioSession.activate)
+        private static let logger = Logger(subsystem: "com.kfurman.SwiftFlac", category: "Playback")
     #endif
 
     private static let shuffleKey = "playerShuffle"
@@ -85,10 +88,6 @@ final class PlayerController {
         isShuffling = UserDefaults.standard.bool(forKey: Self.shuffleKey)
         repeatMode = UserDefaults.standard.string(forKey: Self.repeatKey)
             .flatMap(RepeatMode.init(rawValue:)) ?? .off
-        #if os(iOS)
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try? AVAudioSession.sharedInstance().setActive(true)
-        #endif
         configureRemoteCommands()
         #if os(macOS)
             // Focused lists swallow bare Space (scroll page-down) before menu
@@ -177,30 +176,48 @@ final class PlayerController {
             if began {
                 guard isPlaying else { return }
                 resumeAfterInterruption = true
-                player.pause()
-                isPlaying = false
-                updateNowPlayingInfo()
-                saveSession()
+                pausePlayback()
             } else {
                 let resume = resumeAfterInterruption && shouldResume
                 resumeAfterInterruption = false
                 // Interruptions that end without shouldResume (another app
                 // took over as the primary audio source) stay paused.
                 guard resume, currentTrack != nil else { return }
-                activateAudioSession()
-                player.play()
-                isPlaying = true
-                updateNowPlayingInfo()
+                resumePlayback()
             }
         }
     #endif
 
-    /// Reclaims the audio session before playing; it gets deactivated
-    /// whenever another app interrupts
-    private func activateAudioSession() {
+    private func pausePlayback() {
         #if os(iOS)
-            try? AVAudioSession.sharedInstance().setActive(true)
+            playbackActivation.cancel()
         #endif
+        player.pause()
+        isPlaying = false
+        updateNowPlayingInfo()
+        saveSession()
+    }
+
+    private func resumePlayback() {
+        guard let item = player.currentItem else { return }
+        // Reflect the requested state immediately so Pause also works while
+        // activation is pending. AVPlayer starts only after activation succeeds.
+        isPlaying = true
+        #if os(iOS)
+            playbackActivation.request { [weak self] in
+                guard let self, self.isPlaying, item === self.player.currentItem else { return }
+                self.player.play()
+                self.updateNowPlayingInfo()
+            } onFailure: { [weak self] error in
+                guard let self, item === self.player.currentItem else { return }
+                self.pausePlayback()
+                Self.logger.error("Audio session activation failed: \(error.localizedDescription, privacy: .public)")
+            }
+        #else
+            player.play()
+        #endif
+        updateNowPlayingInfo()
+        saveSession()
     }
 
     func play(_ track: Track, in tracks: [Track]) {
@@ -244,14 +261,10 @@ final class PlayerController {
     func togglePlayPause() {
         guard player.currentItem != nil else { return }
         if isPlaying {
-            player.pause()
+            pausePlayback()
         } else {
-            activateAudioSession()
-            player.play()
+            resumePlayback()
         }
-        isPlaying.toggle()
-        updateNowPlayingInfo()
-        saveSession()
     }
 
     func next() {
@@ -307,9 +320,7 @@ final class PlayerController {
         if !queue.indices.contains(target) {
             guard repeatMode == .all else {
                 // End of queue: stop but keep the last track visible.
-                player.pause()
-                isPlaying = false
-                updateNowPlayingInfo()
+                pausePlayback()
                 return
             }
             target = (target + queue.count) % queue.count
@@ -324,9 +335,7 @@ final class PlayerController {
     private func currentTrackFailed() {
         consecutiveFailures += 1
         guard consecutiveFailures < max(queue.count, 1) else {
-            player.pause()
-            isPlaying = false
-            updateNowPlayingInfo()
+            pausePlayback()
             return
         }
         advance(by: 1)
@@ -347,9 +356,7 @@ final class PlayerController {
                     self.updateNowPlayingInfo()
                 }
             }
-            player.play()
-            isPlaying = true
-            updateNowPlayingInfo()
+            resumePlayback()
         } else {
             advance(by: 1)
         }
@@ -406,6 +413,12 @@ final class PlayerController {
                 }
             }
         }
+        #if os(iOS)
+            playbackActivation.cancel()
+        #endif
+        // Replacing an item on a running AVPlayer can start it immediately.
+        // Hold playback until the new request has activated the audio session.
+        player.pause()
         player.replaceCurrentItem(with: item)
         if paused {
             isPlaying = false
@@ -416,14 +429,13 @@ final class PlayerController {
                     toleranceAfter: .zero
                 )
             }
-        } else {
-            activateAudioSession()
-            player.play()
-            isPlaying = true
         }
         isSeeking = false
         currentTime = startTime
         duration = 0
+        if !paused {
+            resumePlayback()
+        }
         saveSession()
         Task {
             let seconds = (try? await item.asset.load(.duration))?.seconds ?? 0
